@@ -13,7 +13,6 @@ def train(train_loader, model, criterion, optimizer, epoch, print_freq=None):
     for idx, (item, neigh) in enumerate(train_loader):
         start = time.time()
 
-        bsz = len(item)
         images = torch.cat([item, neigh], dim=0)
         # labels = torch.cat([labels[0], labels[1]], dim=0)
         if torch.cuda.is_available():
@@ -22,8 +21,6 @@ def train(train_loader, model, criterion, optimizer, epoch, print_freq=None):
 
         # compute loss
         features = model(images)
-        # f1, f2 = torch.split(features, [bsz, bsz], dim=0)
-        # features = torch.cat([f1.unsqueeze(1), f2.unsqueeze(1)], dim=1)
         loss = criterion(features)
 
         # update metric
@@ -34,6 +31,7 @@ def train(train_loader, model, criterion, optimizer, epoch, print_freq=None):
         optimizer.zero_grad()
         # print(torch.isnan(features).any(), torch.isnan(loss).any(), file=sys.stderr)
         loss.backward()
+        # torch.nn.utils.clip_grad_value_(model.parameters(), 4)
         optimizer.step()
 
         # measure elapsed time
@@ -82,7 +80,7 @@ class ContrastiveEmbedding(object):
         self.print_freq_epoch = print_freq_epoch
         self.print_freq_in_epoch = print_freq_in_epoch
 
-    def fit(self, X: torch.utils.data.Dataset):
+    def fit(self, X: torch.utils.data.DataLoader):
         criterion = ContrastiveLoss(negative_samples=5, temperature=self.temperature)
         optimizer = torch.optim.SGD(
             self.model.parameters(),
@@ -93,6 +91,10 @@ class ContrastiveEmbedding(object):
         self.model.to(self.device)
 
         for epoch in range(self.n_iter):
+            lr = max(0.1, 1 - self.n_iter / (1 + epoch)) * self.learning_rate
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr
+
             train(X,
                   self.model,
                   criterion,
@@ -178,9 +180,13 @@ class ContrastiveLoss(torch.nn.Module):
 
         # probits *= neigh_mask
 
-        # loss
-        loss = - (self.temperature / self.base_temperature) * (
-            torch.log(probits[~neigh_mask]) - torch.log(probits[neigh_mask].sum(axis=0, keepdim=True))
-        )
+        # loss simclr
+        # loss = - (self.temperature / self.base_temperature) * (
+        #     torch.log(probits[~neigh_mask]) - torch.log(probits[neigh_mask].sum(axis=0, keepdim=True))
+        # )
+
+        # cross entropy parametric umap loss
+        loss = - (~neigh_mask * torch.log(probits.clamp(1e-4, 1))) \
+            - (neigh_mask * torch.log((1 - probits).clamp(1e-4, 1)))
 
         return loss.mean()
