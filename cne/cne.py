@@ -5,7 +5,13 @@ import torch
 import numpy as np
 
 
-def train(train_loader, model, criterion, optimizer, epoch, print_freq=None):
+def train(train_loader,
+          model,
+          criterion,
+          optimizer,
+          epoch,
+          clip_grad=True,
+          print_freq=None):
     """one epoch training"""
     model.train()
     losses = []
@@ -31,7 +37,8 @@ def train(train_loader, model, criterion, optimizer, epoch, print_freq=None):
         optimizer.zero_grad()
         # print(torch.isnan(features).any(), torch.isnan(loss).any(), file=sys.stderr)
         loss.backward()
-        # torch.nn.utils.clip_grad_value_(model.parameters(), 4)
+        if clip_grad:
+            torch.nn.utils.clip_grad_value_(model.parameters(), 4)
         optimizer.step()
 
         # measure elapsed time
@@ -63,6 +70,9 @@ class ContrastiveEmbedding(object):
             learning_rate=0.005,
             momentum=0.9,
             temperature=0.5,
+            loss_mode="umap",
+            anneal_lr=True,
+            clip_grad=True,
             save_freq=25,
             savedir=".",
             print_freq_epoch=None,
@@ -75,13 +85,20 @@ class ContrastiveEmbedding(object):
         self.learning_rate = learning_rate
         self.momentum = momentum
         self.temperature = temperature
+        self.loss_mode = loss_mode
+        self.anneal_lr = anneal_lr
+        self.clip_grad = clip_grad
         self.save_freq = save_freq
         self.savedir = savedir
         self.print_freq_epoch = print_freq_epoch
         self.print_freq_in_epoch = print_freq_in_epoch
 
     def fit(self, X: torch.utils.data.DataLoader):
-        criterion = ContrastiveLoss(negative_samples=5, temperature=self.temperature)
+        criterion = ContrastiveLoss(
+            negative_samples=5,
+            temperature=self.temperature,
+            loss_mode=self.loss_mode,
+        )
         optimizer = torch.optim.SGD(
             self.model.parameters(),
             lr=self.learning_rate,
@@ -91,7 +108,9 @@ class ContrastiveEmbedding(object):
         self.model.to(self.device)
 
         for epoch in range(self.n_iter):
-            lr = max(0.1, 1 - self.n_iter / (1 + epoch)) * self.learning_rate
+            lr = ((max(0.1, 1 - self.n_iter / (1 + epoch)) * self.learning_rate)
+                  if self.anneal_lr
+                  else self.learning_rate)
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
 
@@ -100,6 +119,7 @@ class ContrastiveEmbedding(object):
                   criterion,
                   optimizer,
                   epoch,
+                  clip_grad=self.clip_grad,
                   print_freq=self.print_freq_in_epoch)
 
             if (self.print_freq_epoch is not None and
@@ -117,12 +137,12 @@ class ContrastiveEmbedding(object):
 class ContrastiveLoss(torch.nn.Module):
     """Supervised Contrastive Learning: https://arxiv.org/pdf/2004.11362.pdf.
     It also supports the unsupervised contrastive loss in SimCLR"""
-    def __init__(self, negative_samples=5, temperature=0.07, contrast_mode='all',
+    def __init__(self, negative_samples=5, temperature=0.07, loss_mode='all',
                  base_temperature=0.07):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
         self.temperature = temperature
-        self.contrast_mode = contrast_mode
+        self.loss_mode = loss_mode
         self.base_temperature = base_temperature
 
     def forward(self, features):
@@ -138,7 +158,6 @@ class ContrastiveLoss(torch.nn.Module):
         Returns:
             A loss scalar.
         """
-        device = features.device
 
         # if len(features.shape) < 3:
         #     raise ValueError('`features` needs to be [bsz, n_views, ...],'
@@ -147,11 +166,9 @@ class ContrastiveLoss(torch.nn.Module):
         #     features = features.view(features.shape[0], features.shape[1], -1)
 
         batch_size = features.shape[0] // 2
-
         b = batch_size
-        m = self.negative_samples
+
         origs = features[:b]
-        trans = features[b:]
 
         # uniform probability for all other points in the minibatch,
         # except the point itself (excluded for gradient) and the
@@ -160,7 +177,8 @@ class ContrastiveLoss(torch.nn.Module):
         neg_inds = neigh_sample_weights.multinomial(self.negative_samples)
 
         # now add transformed explicitly
-        neigh_inds = torch.hstack((torch.arange(b, 2*b)[:, None], neg_inds)).to(device)
+        neigh_inds = torch.hstack((torch.arange(b, 2*b)[:, None],
+                                   neg_inds)).to(features.device)
         neighbors = features[neigh_inds]
 
         # `neigh_mask` indicates which samples feel attractive force
@@ -180,14 +198,15 @@ class ContrastiveLoss(torch.nn.Module):
 
         # probits *= neigh_mask
 
-        # loss simclr
-        loss = - (self.temperature / self.base_temperature) * (
-            (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
-            - torch.log((neigh_mask * probits.clamp(1e-4, 1)).sum(axis=1, keepdim=False))
-        )
-
-        # cross entropy parametric umap loss
-        # loss = - (~neigh_mask * torch.log(probits.clamp(1e-4, 1))) \
-        #     - (neigh_mask * torch.log((1 - probits).clamp(1e-4, 1)))
+        if self.loss_mode == "umap":
+            # cross entropy parametric umap loss
+            loss = - (~neigh_mask * torch.log(probits.clamp(1e-4, 1))) \
+                - (neigh_mask * torch.log((1 - probits).clamp(1e-4, 1)))
+        else:
+            # loss simclr
+            loss = - (self.temperature / self.base_temperature) * (
+                (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
+                - torch.log((neigh_mask * probits.clamp(1e-4, 1)).sum(axis=1))
+            )
 
         return loss.mean()
