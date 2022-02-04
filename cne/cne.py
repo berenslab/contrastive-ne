@@ -181,12 +181,13 @@ class ContrastiveLoss(torch.nn.Module):
         # probits *= neigh_mask
 
         # loss simclr
-        # loss = - (self.temperature / self.base_temperature) * (
-        #     torch.log(probits[~neigh_mask]) - torch.log(probits[neigh_mask].sum(axis=0, keepdim=True))
-        # )
+        loss = - (self.temperature / self.base_temperature) * (
+            (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
+            - torch.log((neigh_mask * probits.clamp(1e-4, 1)).sum(axis=1, keepdim=False))
+        )
 
         # cross entropy parametric umap loss
-        loss = - (~neigh_mask * torch.log(probits.clamp(1e-4, 1))) \
-            - (neigh_mask * torch.log((1 - probits).clamp(1e-4, 1)))
+        # loss = - (~neigh_mask * torch.log(probits.clamp(1e-4, 1))) \
+        #     - (neigh_mask * torch.log((1 - probits).clamp(1e-4, 1)))
 
         return loss.mean()
