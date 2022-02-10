@@ -54,9 +54,7 @@ def train(train_loader,
                       f"loss% {torch.isnan(loss).sum():.3f}", file=sys.stderr)
                 exit(3)
 
-    print("first losses", losses[:5], "last losses", losses[-5:], file=sys.stderr)
-    return sum(losses) / len(losses)
-
+    return losses
 
 class ContrastiveEmbedding(object):
 
@@ -125,18 +123,22 @@ class ContrastiveEmbedding(object):
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
 
-            train(X,
-                  self.model,
-                  criterion,
-                  optimizer,
-                  epoch,
-                  clip_grad=self.clip_grad,
-                  print_freq=self.print_freq_in_epoch)
+            bl = train(X,
+                       self.model,
+                       criterion,
+                       optimizer,
+                       epoch,
+                       clip_grad=self.clip_grad,
+                       print_freq=self.print_freq_in_epoch)
+            batch_losses.append(bl)
 
-            if (self.print_freq_epoch is not None and
-                epoch % self.print_freq_epoch == 0):
+            if (
+                    self.print_freq_epoch is not None and
+                    epoch % self.print_freq_epoch == 0
+            ):
                 print(epoch, file=sys.stderr)
 
+        self.losses = batch_losses
         self.embedding_ = None
         return self
 
