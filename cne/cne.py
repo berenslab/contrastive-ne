@@ -2,7 +2,6 @@ import sys
 import time
 
 import torch
-import numpy as np
 
 
 def train(train_loader,
@@ -150,7 +149,10 @@ class ContrastiveEmbedding(object):
 class ContrastiveLoss(torch.nn.Module):
     """Supervised Contrastive Learning: https://arxiv.org/pdf/2004.11362.pdf.
     It also supports the unsupervised contrastive loss in SimCLR"""
-    def __init__(self, negative_samples=5, temperature=0.07, loss_mode='all',
+
+    def __init__(self, negative_samples=5,
+                 temperature=0.07,
+                 loss_mode='all',
                  base_temperature=0.07):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
@@ -159,24 +161,14 @@ class ContrastiveLoss(torch.nn.Module):
         self.base_temperature = base_temperature
 
     def forward(self, features):
-        """Compute loss for model. If both `labels` and `mask` are None,
-        it degenerates to SimCLR unsupervised loss:
+        """Compute loss for model. SimCLR unsupervised loss:
         https://arxiv.org/pdf/2002.05709.pdf
 
         Args:
-            features: hidden vector of shape [bsz, n_views, ...].
-            labels: ground truth of shape [bsz].
-            mask: contrastive mask of shape [bsz, bsz], mask_{i,j}=1 if sample j
-                has the same class as sample i. Can be asymmetric.
+            features: hidden vector of shape [2 * bsz, n_views, ...].
         Returns:
             A loss scalar.
         """
-
-        # if len(features.shape) < 3:
-        #     raise ValueError('`features` needs to be [bsz, n_views, ...],'
-        #                      'at least 3 dimensions are required')
-        # if len(features.shape) > 3:
-        #     features = features.view(features.shape[0], features.shape[1], -1)
 
         batch_size = features.shape[0] // 2
         b = batch_size
