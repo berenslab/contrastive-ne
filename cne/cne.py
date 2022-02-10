@@ -71,6 +71,7 @@ class ContrastiveEmbedding(object):
             momentum=0.9,
             temperature=0.5,
             loss_mode="umap",
+            optimizer="sgd",
             anneal_lr=True,
             clip_grad=True,
             save_freq=25,
@@ -86,6 +87,7 @@ class ContrastiveEmbedding(object):
         self.momentum = momentum
         self.temperature = temperature
         self.loss_mode = loss_mode
+        self.optimizer = optimizer
         self.anneal_lr = anneal_lr
         self.clip_grad = clip_grad
         self.save_freq = save_freq
@@ -99,14 +101,23 @@ class ContrastiveEmbedding(object):
             temperature=self.temperature,
             loss_mode=self.loss_mode,
         )
-        optimizer = torch.optim.SGD(
-            self.model.parameters(),
-            lr=self.learning_rate,
-            momentum=self.momentum,
-            # weight_decay=self.weight_decay,
-        )
+
+        if self.optimizer == "sgd":
+            optimizer = torch.optim.SGD(
+                self.model.parameters(),
+                lr=self.learning_rate,
+                momentum=self.momentum,
+                # weight_decay=self.weight_decay,
+            )
+        elif self.optimizer == "adam":
+            optimizer = torch.optim.Adam(self.model.parameters(),
+                                         lr=self.learning_rate,)
+        else:
+            raise ValueError("Only optimizer 'adam' and 'sgd' allowed.")
+
         self.model.to(self.device)
 
+        batch_losses = []
         for epoch in range(self.n_iter):
             lr = ((max(0.1, 1 - self.n_iter / (1 + epoch)) * self.learning_rate)
                   if self.anneal_lr
