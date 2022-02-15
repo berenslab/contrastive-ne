@@ -73,7 +73,7 @@ class ContrastiveEmbedding(object):
             anneal_lr=True,
             clip_grad=True,
             save_freq=25,
-            savedir=".",
+            callback=None,
             print_freq_epoch=None,
             print_freq_in_epoch=None,
     ):
@@ -90,7 +90,7 @@ class ContrastiveEmbedding(object):
         self.anneal_lr: bool = anneal_lr
         self.clip_grad: bool = clip_grad
         self.save_freq: int = save_freq
-        self.savedir = savedir
+        self.callback = callback
         self.print_freq_epoch = print_freq_epoch
         self.print_freq_in_epoch = print_freq_in_epoch
 
@@ -132,6 +132,8 @@ class ContrastiveEmbedding(object):
                        clip_grad=self.clip_grad,
                        print_freq=self.print_freq_in_epoch)
             batch_losses.append(bl)
+            if callable(self.callback):
+                self.callback(epoch, self.model)
 
             if (
                     self.print_freq_epoch is not None and
