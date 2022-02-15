@@ -55,13 +55,14 @@ def train(train_loader,
 
     return losses
 
+
 class ContrastiveEmbedding(object):
 
     def __init__(
             self,
             model,
             batch_size=32,
-            # negative_samples=5,
+            negative_samples=5,
             n_iter=750,
             device="cuda:0",
             learning_rate=0.005,
@@ -94,7 +95,7 @@ class ContrastiveEmbedding(object):
 
     def fit(self, X: torch.utils.data.DataLoader):
         criterion = ContrastiveLoss(
-            negative_samples=5,
+            negative_samples=self.negative_samples,
             temperature=self.temperature,
             loss_mode=self.loss_mode,
         )
@@ -173,13 +174,17 @@ class ContrastiveLoss(torch.nn.Module):
         batch_size = features.shape[0] // 2
         b = batch_size
 
+        # We can at most sample this many samples from the batch.
+        # `b` can be lower than `self.negative_samples` in the last batch.
+        negative_samples = min(self.negative_samples, 2 * (b - 1))
+
         origs = features[:b]
 
         # uniform probability for all other points in the minibatch,
         # except the point itself (excluded for gradient) and the
         # transformed sample (included explicitly after sampling).
         neigh_sample_weights = (torch.eye(b).repeat(1, 2) - 1) * -1 / (2 * b - 2)
-        neg_inds = neigh_sample_weights.multinomial(self.negative_samples)
+        neg_inds = neigh_sample_weights.multinomial(negative_samples)
 
         # now add transformed explicitly
         neigh_inds = torch.hstack((torch.arange(b, 2*b)[:, None],
