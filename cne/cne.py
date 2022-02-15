@@ -77,18 +77,19 @@ class ContrastiveEmbedding(object):
             print_freq_epoch=None,
             print_freq_in_epoch=None,
     ):
-        self.model = model
-        self.batch_size = batch_size
-        self.n_iter = n_iter
+        self.model: torch.nn.Module = model
+        self.batch_size: int = batch_size
+        self.negative_samples: int = negative_samples
+        self.n_iter: int = n_iter
         self.device = device
         self.learning_rate = learning_rate
         self.momentum = momentum
         self.temperature = temperature
-        self.loss_mode = loss_mode
+        self.loss_mode: str = loss_mode
         self.optimizer = optimizer
-        self.anneal_lr = anneal_lr
-        self.clip_grad = clip_grad
-        self.save_freq = save_freq
+        self.anneal_lr: bool = anneal_lr
+        self.clip_grad: bool = clip_grad
+        self.save_freq: int = save_freq
         self.savedir = savedir
         self.print_freq_epoch = print_freq_epoch
         self.print_freq_in_epoch = print_freq_in_epoch
