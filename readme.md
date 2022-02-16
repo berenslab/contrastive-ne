@@ -22,6 +22,24 @@ it with CUDA support.
 
 # Example
 
+The most basic use is via `CNE`.  You can create a parametric embedding as follows:
+
+```python
+import cne
+import numpy as np
+
+# load data
+ar = np.load("../contrastive-experiments/data/mnist/pca/data.npy")
+
+emb = cne.CNE()
+Y = emb.fit_transform(ar)
+```
+
+This will create a `n x 2` numpy array (variable `Y`) which can then be
+plotted or further investigated/processed.
+
+## technical detail
+
 The object `ContrastiveEmbedding` needs a neural network `model` as a
 required parameter in order to be created.  The `fit` method then
 takes a `torch.utils.data.DataLoader` that will be used for training.
