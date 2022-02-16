@@ -132,7 +132,12 @@ class ContrastiveEmbedding(object):
                        clip_grad=self.clip_grad,
                        print_freq=self.print_freq_in_epoch)
             batch_losses.append(bl)
-            if callable(self.callback):
+            if (
+                    self.save_freq is not None
+                    and self.save_freq > 0
+                    and epoch % self.save_freq == 0
+                    and callable(self.callback)
+            ):
                 self.callback(epoch, self.model)
 
             if (
