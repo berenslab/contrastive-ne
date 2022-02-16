@@ -40,9 +40,6 @@ def train(train_loader,
             torch.nn.utils.clip_grad_value_(model.parameters(), 4)
         optimizer.step()
 
-        # measure elapsed time
-        end = time.time()
-
         # print info
         if print_freq is not None and (idx + 1) % print_freq == 0:
             print(f'Train: E{epoch}, {idx}/{len(train_loader)}\t'
@@ -60,17 +57,17 @@ class ContrastiveEmbedding(object):
 
     def __init__(
             self,
-            model,
+            model: torch.nn.Module,
             batch_size=32,
             negative_samples=5,
-            n_iter=750,
+            n_iter=50,
             device="cuda:0",
-            learning_rate=0.005,
+            learning_rate=0.001,
             momentum=0.9,
             temperature=0.5,
             loss_mode="umap",
-            optimizer="sgd",
-            anneal_lr=True,
+            optimizer="adam",
+            anneal_lr=False,
             clip_grad=True,
             save_freq=25,
             callback=None,
