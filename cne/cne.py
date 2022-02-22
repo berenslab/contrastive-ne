@@ -6,6 +6,7 @@ import torch
 
 def train(train_loader,
           model,
+          log_Z,
           criterion,
           optimizer,
           epoch,
@@ -26,7 +27,7 @@ def train(train_loader,
 
         # compute loss
         features = model(images)
-        loss = criterion(features)
+        loss = criterion(features) if log_Z is None else criterion(features, log_Z)
 
         # update metric
         # losses.update(loss.item(), bsz)
@@ -38,6 +39,8 @@ def train(train_loader,
         loss.backward()
         if clip_grad:
             torch.nn.utils.clip_grad_value_(model.parameters(), 4)
+            if log_Z is not None:
+                torch.nn.utils.clip_grad_value_(log_Z, 4)
         optimizer.step()
 
         # print info
@@ -90,6 +93,11 @@ class ContrastiveEmbedding(object):
         self.callback = callback
         self.print_freq_epoch = print_freq_epoch
         self.print_freq_in_epoch = print_freq_in_epoch
+        self.log_Z = None
+        if self.loss_mode == "ncvis":
+            self.log_Z = torch.nn.Parameter(torch.tensor(0.0),
+                                            requires_grad=True)
+
 
     def fit(self, X: torch.utils.data.DataLoader):
         criterion = ContrastiveLoss(
@@ -98,20 +106,25 @@ class ContrastiveEmbedding(object):
             loss_mode=self.loss_mode,
         )
 
+        params = self.model.parameters() if self.loss_mode != "ncvis" else \
+            list(self.model.parameters()) + [self.log_Z]
+
         if self.optimizer == "sgd":
             optimizer = torch.optim.SGD(
-                self.model.parameters(),
+                params,
                 lr=self.learning_rate,
                 momentum=self.momentum,
                 # weight_decay=self.weight_decay,
             )
         elif self.optimizer == "adam":
-            optimizer = torch.optim.Adam(self.model.parameters(),
+            optimizer = torch.optim.Adam(params,
                                          lr=self.learning_rate,)
         else:
             raise ValueError("Only optimizer 'adam' and 'sgd' allowed.")
 
         self.model.to(self.device)
+        if self.loss_mode == "ncvis":
+            self.log_Z.to(self.device)
 
         batch_losses = []
         for epoch in range(self.n_iter):
@@ -123,6 +136,7 @@ class ContrastiveEmbedding(object):
 
             bl = train(X,
                        self.model,
+                       self.log_Z,
                        criterion,
                        optimizer,
                        epoch,
@@ -166,7 +180,7 @@ class ContrastiveLoss(torch.nn.Module):
         self.loss_mode = loss_mode
         self.base_temperature = base_temperature
 
-    def forward(self, features):
+    def forward(self, features, log_Z=None):
         """Compute loss for model. SimCLR unsupervised loss:
         https://arxiv.org/pdf/2002.05709.pdf
 
@@ -217,6 +231,16 @@ class ContrastiveLoss(torch.nn.Module):
             # cross entropy parametric umap loss
             loss = - (~neigh_mask * torch.log(probits.clamp(1e-4, 1))) \
                 - (neigh_mask * torch.log((1 - probits).clamp(1e-4, 1)))
+        elif self.loss_mode == "ncvis":
+            probits = probits / torch.exp(log_Z)
+
+            # for proper ncvis it should be negative_samples * p_noise. But for
+            # uniform noise distribution we would need the size of the dataset
+            # here. Also, we do not use a uniform noise distribution as we sample
+            # negative samples from the batch.
+            estimator = probits / (probits + negative_samples)
+            loss = - (~neigh_mask * torch.log(estimator.clamp(1e-4, 1))) \
+                - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
         else:
             # loss simclr
             loss = - (self.temperature / self.base_temperature) * (
