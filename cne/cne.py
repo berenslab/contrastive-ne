@@ -27,7 +27,7 @@ def train(train_loader,
 
         # compute loss
         features = model(images)
-        loss = criterion(features) if log_Z is None else criterion(features, log_Z)
+        loss = criterion(features, log_Z)
 
         # update metric
         # losses.update(loss.item(), bsz)
@@ -186,6 +186,7 @@ class ContrastiveLoss(torch.nn.Module):
 
         Args:
             features: hidden vector of shape [2 * bsz, n_views, ...].
+            log_Z: scalar, logarithm of the learnt normalization constant for ncvis.
         Returns:
             A loss scalar.
         """
