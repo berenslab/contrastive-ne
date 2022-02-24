@@ -17,6 +17,7 @@ def train(train_loader,
     losses = []
 
     for idx, (item, neigh) in enumerate(train_loader):
+        print_now = print_freq is not None and (idx + 1) % print_freq == 0
         start = time.time()
 
         images = torch.cat([item, neigh], dim=0)
@@ -27,6 +28,8 @@ def train(train_loader,
 
         # compute loss
         features = model(images)
+        if print_now:
+            features.retain_grad() # to print model agnostic grad statistics
         loss = criterion(features, log_Z)
 
         # update metric
@@ -44,9 +47,13 @@ def train(train_loader,
         optimizer.step()
 
         # print info
-        if print_freq is not None and (idx + 1) % print_freq == 0:
+        if print_now:
             print(f'Train: E{epoch}, {idx}/{len(train_loader)}\t'
-                  f'grad magn {model.linear_relu_stack[-1].weight.grad.abs().sum()}, loss {sum(losses) / len(losses):.3f}, time/epoch {time.time() - start:.3f}',
+                  #f'grad magn {model.linear_relu_stack[-1].weight.grad.abs().sum()}, '
+                  # print grad on features to be model agnostic
+                  f'grad magn {features.grad.abs().sum():.3f}, '
+                  f'loss {sum(losses) / len(losses):.3f}, '
+                  f'time/iteration {time.time() - start:.3f}',
                   file=sys.stderr)
             if torch.isnan(features).any() or torch.isnan(loss).any():
                 print(f"NaN error! feat% {torch.isnan(features).sum() / (features.shape[0] * features.shape[1]):.3f}, "
@@ -63,11 +70,13 @@ class ContrastiveEmbedding(object):
             model: torch.nn.Module,
             batch_size=32,
             negative_samples=5,
-            n_iter=50,
+            n_epochs=50,
             device="cuda:0",
             learning_rate=0.001,
             momentum=0.9,
             temperature=0.5,
+            noise_in_estimator=1.,
+            Z_bar=None,
             loss_mode="umap",
             optimizer="adam",
             anneal_lr=False,
@@ -80,7 +89,7 @@ class ContrastiveEmbedding(object):
         self.model: torch.nn.Module = model
         self.batch_size: int = batch_size
         self.negative_samples: int = negative_samples
-        self.n_iter: int = n_iter
+        self.n_epochs: int = n_epochs
         self.device = device
         self.learning_rate = learning_rate
         self.momentum = momentum
@@ -98,12 +107,28 @@ class ContrastiveEmbedding(object):
             self.log_Z = torch.nn.Parameter(torch.tensor(0.0),
                                             requires_grad=True)
 
+        if self.loss_mode == "neg_sample":
+            assert noise_in_estimator is not None or Z_bar is not None, \
+                f"Exactly one of 'noise_in_estimator' and 'Z_bar' must be not None."
 
-    def fit(self, X: torch.utils.data.DataLoader):
+            if noise_in_estimator is not None and Z_bar is not None:
+                print("Warning: Both 'noise_in_estimator' and 'Z_bar' were specified. Only 'Z_bar' will be considered.")
+        self.Z_bar = Z_bar
+        self.noise_in_estimator = noise_in_estimator
+
+
+    def fit(self, X: torch.utils.data.DataLoader, n: int):
+        if self.loss_mode == "neg_sample":
+            if self.Z_bar is not None:
+                # assume uniform noise distribution over n**2 many edges
+                self.noise_in_estimator = self.negative_samples * self.Z_bar / n**2
+
         criterion = ContrastiveLoss(
             negative_samples=self.negative_samples,
             temperature=self.temperature,
             loss_mode=self.loss_mode,
+            noise_in_estimator = torch.tensor(self.noise_in_estimator,
+                                              device=self.device)
         )
 
         params = self.model.parameters() if self.loss_mode != "ncvis" else \
@@ -127,8 +152,8 @@ class ContrastiveEmbedding(object):
             self.log_Z.to(self.device)
 
         batch_losses = []
-        for epoch in range(self.n_iter):
-            lr = ((max(0.1, 1 - self.n_iter / (1 + epoch)) * self.learning_rate)
+        for epoch in range(self.n_epochs):
+            lr = ((max(0.1, 1 - self.n_epochs / (1 + epoch)) * self.learning_rate)
                   if self.anneal_lr
                   else self.learning_rate)
             for param_group in optimizer.param_groups:
@@ -155,7 +180,7 @@ class ContrastiveEmbedding(object):
                     self.print_freq_epoch is not None and
                     epoch % self.print_freq_epoch == 0
             ):
-                print(epoch, file=sys.stderr)
+                print(f"Finished epoch {epoch}/{self.n_epochs}", file=sys.stderr)
 
         self.losses = batch_losses
         self.embedding_ = None
@@ -173,12 +198,14 @@ class ContrastiveLoss(torch.nn.Module):
     def __init__(self, negative_samples=5,
                  temperature=0.07,
                  loss_mode='all',
-                 base_temperature=0.07):
+                 base_temperature=0.07,
+                 noise_in_estimator=1.):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
         self.temperature = temperature
         self.loss_mode = loss_mode
         self.base_temperature = base_temperature
+        self.noise_in_estimator = noise_in_estimator
 
     def forward(self, features, log_Z=None):
         """Compute loss for model. SimCLR unsupervised loss:
@@ -240,6 +267,10 @@ class ContrastiveLoss(torch.nn.Module):
             # here. Also, we do not use a uniform noise distribution as we sample
             # negative samples from the batch.
             estimator = probits / (probits + negative_samples)
+            loss = - (~neigh_mask * torch.log(estimator.clamp(1e-4, 1))) \
+                - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
+        elif self.loss_mode == "neg_sample":
+            estimator = probits / (probits + self.noise_in_estimator)
             loss = - (~neigh_mask * torch.log(estimator.clamp(1e-4, 1))) \
                 - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
         else:
