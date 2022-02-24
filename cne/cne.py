@@ -17,6 +17,7 @@ def train(train_loader,
     losses = []
 
     for idx, (item, neigh) in enumerate(train_loader):
+        print_now = print_freq is not None and (idx + 1) % print_freq == 0
         start = time.time()
 
         images = torch.cat([item, neigh], dim=0)
@@ -27,6 +28,8 @@ def train(train_loader,
 
         # compute loss
         features = model(images)
+        if print_now:
+            features.retain_grad() # to print model agnostic grad statistics
         loss = criterion(features, log_Z)
 
         # update metric
@@ -44,9 +47,13 @@ def train(train_loader,
         optimizer.step()
 
         # print info
-        if print_freq is not None and (idx + 1) % print_freq == 0:
+        if print_now:
             print(f'Train: E{epoch}, {idx}/{len(train_loader)}\t'
-                  f'grad magn {model.linear_relu_stack[-1].weight.grad.abs().sum()}, loss {sum(losses) / len(losses):.3f}, time/epoch {time.time() - start:.3f}',
+                  #f'grad magn {model.linear_relu_stack[-1].weight.grad.abs().sum()}, '
+                  # print grad on features to be model agnostic
+                  f'grad magn {features.grad.abs().sum():.3f}, '
+                  f'loss {sum(losses) / len(losses):.3f}, '
+                  f'time/epoch {time.time() - start:.3f}',
                   file=sys.stderr)
             if torch.isnan(features).any() or torch.isnan(loss).any():
                 print(f"NaN error! feat% {torch.isnan(features).sum() / (features.shape[0] * features.shape[1]):.3f}, "
@@ -155,7 +162,7 @@ class ContrastiveEmbedding(object):
                     self.print_freq_epoch is not None and
                     epoch % self.print_freq_epoch == 0
             ):
-                print(epoch, file=sys.stderr)
+                print(f"Finished epoch {epoch}/{self.n_iter}", file=sys.stderr)
 
         self.losses = batch_losses
         self.embedding_ = None
