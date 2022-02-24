@@ -182,5 +182,5 @@ class CNE(object):
             generator=gen,
         )
 
-        self.cne.fit(self.dataloader)
+        self.cne.fit(self.dataloader, len(X))
         return self

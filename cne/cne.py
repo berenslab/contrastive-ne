@@ -75,6 +75,8 @@ class ContrastiveEmbedding(object):
             learning_rate=0.001,
             momentum=0.9,
             temperature=0.5,
+            noise_in_estimator=1.,
+            Z_bar=None,
             loss_mode="umap",
             optimizer="adam",
             anneal_lr=False,
@@ -105,12 +107,28 @@ class ContrastiveEmbedding(object):
             self.log_Z = torch.nn.Parameter(torch.tensor(0.0),
                                             requires_grad=True)
 
+        if self.loss_mode == "neg_sample":
+            assert noise_in_estimator is not None or Z_bar is not None, \
+                f"Exactly one of 'noise_in_estimator' and 'Z_bar' must be not None."
 
-    def fit(self, X: torch.utils.data.DataLoader):
+            if noise_in_estimator is not None and Z_bar is not None:
+                print("Warning: Both 'noise_in_estimator' and 'Z_bar' were specified. Only 'Z_bar' will be considered.")
+        self.Z_bar = Z_bar
+        self.noise_in_estimator = noise_in_estimator
+
+
+    def fit(self, X: torch.utils.data.DataLoader, n: int):
+        if self.loss_mode == "neg_sample":
+            if self.Z_bar is not None:
+                # assume uniform noise distribution over n**2 many edges
+                self.noise_in_estimator = self.negative_samples * self.Z_bar / n**2
+
         criterion = ContrastiveLoss(
             negative_samples=self.negative_samples,
             temperature=self.temperature,
             loss_mode=self.loss_mode,
+            noise_in_estimator = torch.tensor(self.noise_in_estimator,
+                                              device=self.device)
         )
 
         params = self.model.parameters() if self.loss_mode != "ncvis" else \
@@ -180,12 +198,14 @@ class ContrastiveLoss(torch.nn.Module):
     def __init__(self, negative_samples=5,
                  temperature=0.07,
                  loss_mode='all',
-                 base_temperature=0.07):
+                 base_temperature=0.07,
+                 noise_in_estimator=1.):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
         self.temperature = temperature
         self.loss_mode = loss_mode
         self.base_temperature = base_temperature
+        self.noise_in_estimator = noise_in_estimator
 
     def forward(self, features, log_Z=None):
         """Compute loss for model. SimCLR unsupervised loss:
@@ -247,6 +267,10 @@ class ContrastiveLoss(torch.nn.Module):
             # here. Also, we do not use a uniform noise distribution as we sample
             # negative samples from the batch.
             estimator = probits / (probits + negative_samples)
+            loss = - (~neigh_mask * torch.log(estimator.clamp(1e-4, 1))) \
+                - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
+        elif self.loss_mode == "neg_sample":
+            estimator = probits / (probits + self.noise_in_estimator)
             loss = - (~neigh_mask * torch.log(estimator.clamp(1e-4, 1))) \
                 - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
         else:

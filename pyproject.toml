@@ -1,6 +1,6 @@
 [project]
 name = "cne"
-version = "0.1.1"
+version = "0.1.2"
 description = "Contrastive Neighbor Embedding for low-dimensional distance-less embeddings"
 authors = [
     {name = "Niklas Böhm", email = "jan-niklas.boehm@uni-tuebingen.de"},
