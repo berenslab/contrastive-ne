@@ -53,7 +53,7 @@ def train(train_loader,
                   # print grad on features to be model agnostic
                   f'grad magn {features.grad.abs().sum():.3f}, '
                   f'loss {sum(losses) / len(losses):.3f}, '
-                  f'time/epoch {time.time() - start:.3f}',
+                  f'time/iteration {time.time() - start:.3f}',
                   file=sys.stderr)
             if torch.isnan(features).any() or torch.isnan(loss).any():
                 print(f"NaN error! feat% {torch.isnan(features).sum() / (features.shape[0] * features.shape[1]):.3f}, "
@@ -70,7 +70,7 @@ class ContrastiveEmbedding(object):
             model: torch.nn.Module,
             batch_size=32,
             negative_samples=5,
-            n_iter=50,
+            n_epochs=50,
             device="cuda:0",
             learning_rate=0.001,
             momentum=0.9,
@@ -87,7 +87,7 @@ class ContrastiveEmbedding(object):
         self.model: torch.nn.Module = model
         self.batch_size: int = batch_size
         self.negative_samples: int = negative_samples
-        self.n_iter: int = n_iter
+        self.n_epochs: int = n_epochs
         self.device = device
         self.learning_rate = learning_rate
         self.momentum = momentum
@@ -134,8 +134,8 @@ class ContrastiveEmbedding(object):
             self.log_Z.to(self.device)
 
         batch_losses = []
-        for epoch in range(self.n_iter):
-            lr = ((max(0.1, 1 - self.n_iter / (1 + epoch)) * self.learning_rate)
+        for epoch in range(self.n_epochs):
+            lr = ((max(0.1, 1 - self.n_epochs / (1 + epoch)) * self.learning_rate)
                   if self.anneal_lr
                   else self.learning_rate)
             for param_group in optimizer.param_groups:
@@ -162,7 +162,7 @@ class ContrastiveEmbedding(object):
                     self.print_freq_epoch is not None and
                     epoch % self.print_freq_epoch == 0
             ):
-                print(f"Finished epoch {epoch}/{self.n_iter}", file=sys.stderr)
+                print(f"Finished epoch {epoch}/{self.n_epochs}", file=sys.stderr)
 
         self.losses = batch_losses
         self.embedding_ = None
