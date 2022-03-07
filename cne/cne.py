@@ -227,11 +227,8 @@ class ContrastiveLoss(torch.nn.Module):
 
         origs = features[:b]
 
-        # uniform probability for all other points in the minibatch,
-        # except the point itself (excluded for gradient) and the
-        # transformed sample (included explicitly after sampling).
-        neigh_sample_weights = (torch.eye(b).repeat(1, 2) - 1) * -1 / (2 * b - 2)
-        neg_inds = neigh_sample_weights.multinomial(negative_samples)
+        # uniform probability for all points in the minibatch
+        neg_inds = torch.randint(0, 2 * b, (b, negative_samples))
 
         # now add transformed explicitly
         neigh_inds = torch.hstack((torch.arange(b, 2*b)[:, None],
