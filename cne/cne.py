@@ -116,10 +116,11 @@ class ContrastiveEmbedding(object):
         self.Z_bar = Z_bar
         self.noise_in_estimator = noise_in_estimator
 
-
-    def fit(self, X: torch.utils.data.DataLoader, n: int):
+    def fit(self, X: torch.utils.data.DataLoader, n: int = None):
         if self.loss_mode == "neg_sample":
             if self.Z_bar is not None:
+                # if not explicitly passed, use dataset length
+                n = len(X) if n is None else n
                 # assume uniform noise distribution over n**2 many edges
                 self.noise_in_estimator = self.negative_samples * self.Z_bar / n**2
 
