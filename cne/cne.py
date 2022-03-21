@@ -152,6 +152,14 @@ class ContrastiveEmbedding(object):
         if self.loss_mode == "ncvis":
             self.log_Z.to(self.device)
 
+        # initial callback
+        if (
+                self.save_freq is not None
+                and self.save_freq > 0
+                and callable(self.callback)
+        ):
+            self.callback(-1, self.model)
+
         batch_losses = []
         for epoch in range(self.n_epochs):
             lr = ((max(0.1, 1 - self.n_epochs / (1 + epoch)) * self.learning_rate)
@@ -169,6 +177,7 @@ class ContrastiveEmbedding(object):
                        clip_grad=self.clip_grad,
                        print_freq=self.print_freq_in_epoch)
             batch_losses.append(bl)
+
             if (
                     self.save_freq is not None
                     and self.save_freq > 0
@@ -176,7 +185,6 @@ class ContrastiveEmbedding(object):
                     and callable(self.callback)
             ):
                 self.callback(epoch, self.model)
-
             if (
                     self.print_freq_epoch is not None and
                     epoch % self.print_freq_epoch == 0
