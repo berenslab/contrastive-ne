@@ -96,12 +96,13 @@ class FCNetwork(torch.nn.Module):
 
 
 class CNE(object):
-    def __init__(self, model=None, k=15, parametric=True, **kwargs):
+    def __init__(self, model=None, k=15, parametric=True, neighbor_mat=None, num_workers=0, **kwargs):
         self.model = model
         self.k = k
         self.parametric = parametric
+        self.num_workers = num_workers
+        self.neighbor_mat = neighbor_mat
         # self.batch_size = batch_size
-        # self.num_workers = num_workers
         self.kwargs = kwargs
 
 
@@ -137,7 +138,7 @@ class CNE(object):
                     pca_projector = PCA(n_components=2)
                     init = pca_projector.fit_transform(X)
                     init /= (init[:, 0].std())
-                elif isinstance(init, np.array):
+                elif type(init).__module__ == np.__name__:
                     assert len(init) == len(X),f"Data and initialization must have the same number of elements but have {len(X)} and {len(init)}."
                     assert len(init.shape) == 2, f"Initialization must have 2 dimensions but has {len(init.shape)}."
                 # All embedding parameters will be part of the model. This is
@@ -150,22 +151,26 @@ class CNE(object):
         lr = 0.001 if self.parametric else 0.1
         self.cne = ContrastiveEmbedding(self.model, learning_rate=lr, **self.kwargs)
 
-        # create approximate NN search tree
-        self.annoy = AnnoyIndex(in_dim, "euclidean")
-        [self.annoy.add_item(i, x) for i, x in enumerate(X)]
-        self.annoy.build(50)
 
-        # construct the adjacency matrix for the graph
-        adj = lil_matrix((X.shape[0], X.shape[0]))
-        for i in range(X.shape[0]):
-            neighs_, dists_ = self.annoy.get_nns_by_item(i, self.k + 1, include_distances=True)
-            neighs = neighs_[1:]
-            dists = dists_[1:]
+        if self.neighbor_mat is None:
+            # create approximate NN search tree
+            self.annoy = AnnoyIndex(in_dim, "euclidean")
+            [self.annoy.add_item(i, x) for i, x in enumerate(X)]
+            self.annoy.build(50)
 
-            adj[i, neighs] = 1
-            adj[neighs, i] = 1  # symmetrize on the fly
+            # construct the adjacency matrix for the graph
+            adj = lil_matrix((X.shape[0], X.shape[0]))
+            for i in range(X.shape[0]):
+                neighs_, dists_ = self.annoy.get_nns_by_item(i, self.k + 1, include_distances=True)
+                neighs = neighs_[1:]
+                dists = dists_[1:]
 
-        self.neighbor_mat = adj.tocsr()
+                adj[i, neighs] = 1
+                adj[neighs, i] = 1  # symmetrize on the fly
+
+            self.neighbor_mat = adj.tocsr()
+        else:
+            self.neighbor_mat = self.neighbor_mat.tocsr()
 
         data_seed = 33
         if self.parametric:
@@ -180,6 +185,7 @@ class CNE(object):
             shuffle=True,
             batch_size=self.cne.batch_size,
             generator=gen,
+            num_workers=self.num_workers
         )
 
         self.cne.fit(self.dataloader, len(X))
