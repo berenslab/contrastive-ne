@@ -96,12 +96,11 @@ class FCNetwork(torch.nn.Module):
 
 
 class CNE(object):
-    def __init__(self, model=None, k=15, parametric=True, neighbor_mat=None, num_workers=0, **kwargs):
+    def __init__(self, model=None, k=15, parametric=True, num_workers=0, **kwargs):
         self.model = model
         self.k = k
         self.parametric = parametric
         self.num_workers = num_workers
-        self.neighbor_mat = neighbor_mat
         # self.batch_size = batch_size
         self.kwargs = kwargs
 
@@ -126,7 +125,7 @@ class CNE(object):
                         for batch in self.dl_unshuf])
         return ar
 
-    def fit(self, X, y=None, init=None):
+    def fit(self, X, y=None, init=None, graph=None):
 
         in_dim = X.shape[1]
         if self.model is None:
@@ -152,7 +151,7 @@ class CNE(object):
         self.cne = ContrastiveEmbedding(self.model, learning_rate=lr, **self.kwargs)
 
 
-        if self.neighbor_mat is None:
+        if graph is None:
             # create approximate NN search tree
             self.annoy = AnnoyIndex(in_dim, "euclidean")
             [self.annoy.add_item(i, x) for i, x in enumerate(X)]
@@ -170,7 +169,7 @@ class CNE(object):
 
             self.neighbor_mat = adj.tocsr()
         else:
-            self.neighbor_mat = self.neighbor_mat.tocsr()
+            self.neighbor_mat = graph.tocsr()
 
         data_seed = 33
         if self.parametric:
