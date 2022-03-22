@@ -158,7 +158,12 @@ class ContrastiveEmbedding(object):
                 and self.save_freq > 0
                 and callable(self.callback)
         ):
-            self.callback(-1, self.model)
+            self.callback(-1,
+                          self.model,
+                          self.negative_samples,
+                          self.loss_mode,
+                          self.log_Z,
+                          )
 
         batch_losses = []
         for epoch in range(self.n_epochs):
@@ -184,7 +189,11 @@ class ContrastiveEmbedding(object):
                     and epoch % self.save_freq == 0
                     and callable(self.callback)
             ):
-                self.callback(epoch, self.model)
+                self.callback(epoch,
+                              self.model,
+                              self.negative_samples,
+                              self.loss_mode,
+                              self.log_Z)
             if (
                     self.print_freq_epoch is not None and
                     epoch % self.print_freq_epoch == 0
