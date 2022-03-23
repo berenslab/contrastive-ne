@@ -288,11 +288,16 @@ class ContrastiveLoss(torch.nn.Module):
             estimator = probits / (probits + self.noise_in_estimator)
             loss = - (~neigh_mask * torch.log(estimator.clamp(1e-4, 1))) \
                 - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
+        elif self.loss_mode == "ince_pos":
+            # loss from e.g. sohn et al 2016, includes pos similarity in denominator
+            loss = - (self.temperature / self.base_temperature) * (
+                    (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
+                    - torch.log(probits.clamp(1e-4, 1).sum(axis=1))
+            )
         else:
             # loss simclr
             loss = - (self.temperature / self.base_temperature) * (
                 (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
                 - torch.log((neigh_mask * probits.clamp(1e-4, 1)).sum(axis=1))
             )
-
         return loss.mean()
