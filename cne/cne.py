@@ -128,8 +128,7 @@ class ContrastiveEmbedding(object):
             negative_samples=self.negative_samples,
             temperature=self.temperature,
             loss_mode=self.loss_mode,
-            noise_in_estimator = torch.tensor(self.noise_in_estimator,
-                                              device=self.device)
+            noise_in_estimator = torch.tensor(self.noise_in_estimator).to("cuda")
         )
 
         params = self.model.parameters() if self.loss_mode != "ncvis" else \

@@ -184,7 +184,9 @@ class CNE(object):
             shuffle=True,
             batch_size=self.cne.batch_size,
             generator=gen,
-            num_workers=self.num_workers
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=True
         )
 
         self.cne.fit(self.dataloader, len(X))
