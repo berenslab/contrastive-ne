@@ -78,6 +78,7 @@ class ContrastiveEmbedding(object):
             noise_in_estimator=1.,
             Z_bar=None,
             eps=1.0,
+            clamp_low=1e-4,
             loss_mode="umap",
             optimizer="adam",
             anneal_lr=False,
@@ -105,6 +106,7 @@ class ContrastiveEmbedding(object):
         self.print_freq_in_epoch = print_freq_in_epoch
         self.log_Z = None
         self.eps = eps
+        self.clamp_low = clamp_low
         if self.loss_mode == "ncvis":
             self.log_Z = torch.nn.Parameter(torch.tensor(0.0),
                                             requires_grad=True)
@@ -131,7 +133,8 @@ class ContrastiveEmbedding(object):
             temperature=self.temperature,
             loss_mode=self.loss_mode,
             noise_in_estimator = torch.tensor(self.noise_in_estimator).to("cuda"),
-            eps = torch.tensor(self.eps).to("cuda")
+            eps = torch.tensor(self.eps).to("cuda"),
+            clamp_low = self.clamp_low
         )
 
         params = self.model.parameters() if self.loss_mode != "ncvis" else \
@@ -220,7 +223,8 @@ class ContrastiveLoss(torch.nn.Module):
                  loss_mode='all',
                  base_temperature=0.07,
                  noise_in_estimator=1.,
-                 eps=1.):
+                 eps=1.,
+                 clamp_low = 1e-4):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
         self.temperature = temperature
@@ -228,6 +232,7 @@ class ContrastiveLoss(torch.nn.Module):
         self.base_temperature = base_temperature
         self.noise_in_estimator = noise_in_estimator
         self.eps = eps
+        self.clamp_low = clamp_low
 
     def forward(self, features, log_Z=None):
         """Compute loss for model. SimCLR unsupervised loss:
@@ -277,14 +282,14 @@ class ContrastiveLoss(torch.nn.Module):
             estimator = 1 / (1 + (dists + self.eps)
                                  * torch.exp(log_Z)
                                  * negative_samples)
-            loss = - (~neigh_mask * torch.log(estimator.clamp(1e-4, 1))) \
-                   - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
+            loss = - (~neigh_mask * torch.log(estimator.clamp(self.clamp_low, 1))) \
+                   - (neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, 1)))
 
         elif self.loss_mode == "neg_sample":
             # estimator rewritten for numerical stability as for ncvis
             estimator = 1 / (1 + self.noise_in_estimator * (dists + self.eps))
-            loss = - (~neigh_mask * torch.log(estimator.clamp(1e-4, 1))) \
-                   - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
+            loss = - (~neigh_mask * torch.log(estimator.clamp(self.clamp_low, 1))) \
+                   - (neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, 1)))
 
         else:
 
@@ -297,18 +302,18 @@ class ContrastiveLoss(torch.nn.Module):
 
             if self.loss_mode == "umap":
                 # cross entropy parametric umap loss
-                loss = - (~neigh_mask * torch.log(probits.clamp(1e-4, 1))) \
-                    - (neigh_mask * torch.log((1 - probits).clamp(1e-4, 1)))
+                loss = - (~neigh_mask * torch.log(probits.clamp(self.clamp_low, 1))) \
+                    - (neigh_mask * torch.log((1 - probits).clamp(self.clamp_low, 1)))
             elif self.loss_mode == "ince_pos":
                 # loss from e.g. sohn et al 2016, includes pos similarity in denominator
                 loss = - (self.temperature / self.base_temperature) * (
-                        (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
-                        - torch.log(probits.clamp(1e-4, 1).sum(axis=1))
+                        (torch.log(probits.clamp(self.clamp_low, 1)[~neigh_mask]))
+                        - torch.log(probits.clamp(self.clamp_low, 1).sum(axis=1))
                 )
             else:
                 # loss simclr
                 loss = - (self.temperature / self.base_temperature) * (
-                    (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
-                    - torch.log((neigh_mask * probits.clamp(1e-4, 1)).sum(axis=1))
+                    (torch.log(probits.clamp(self.clamp_low, 1)[~neigh_mask]))
+                    - torch.log((neigh_mask * probits.clamp(self.clamp_low, 1)).sum(axis=1))
                 )
         return loss.sum()
