@@ -147,8 +147,10 @@ class CNE(object):
                 self.model.requires_grad_(True)
 
         # use higher learning rate for non-parametric version
-        lr = 0.001 if self.parametric else 0.1
-        self.cne = ContrastiveEmbedding(self.model, learning_rate=lr, **self.kwargs)
+        if "learning_rate" not in self.kwargs.keys():
+            lr = 0.001 if self.parametric else 0.1
+            self.kwargs["learning_rate"] = lr
+        self.cne = ContrastiveEmbedding(self.model, **self.kwargs)
 
 
         if graph is None:
