@@ -266,42 +266,49 @@ class ContrastiveLoss(torch.nn.Module):
         diff = (origs[:, None] - neighbors)
         dists = (diff ** 2).sum(axis=2)
 
-        # Cauchy affinities
-        probits = torch.div(
-                1,
-                self.eps + dists
-        )
-
-        # probits *= neigh_mask
-
-        if self.loss_mode == "umap":
-            # cross entropy parametric umap loss
-            loss = - (~neigh_mask * torch.log(probits.clamp(1e-4, 1))) \
-                - (neigh_mask * torch.log((1 - probits).clamp(1e-4, 1)))
-        elif self.loss_mode == "ncvis":
-            probits = probits / torch.exp(log_Z)
-
+        if self.loss_mode == "ncvis":
             # for proper ncvis it should be negative_samples * p_noise. But for
             # uniform noise distribution we would need the size of the dataset
             # here. Also, we do not use a uniform noise distribution as we sample
             # negative samples from the batch.
-            estimator = probits / (probits + negative_samples)
+
+            # estimator is (cauchy / Z) / ( cauchy / Z + neg samples)). For numerical
+            # stability rewrite to 1 / ( 1 + (d**2 + eps) * Z * m)
+            estimator = 1 / (1 + (dists + self.eps)
+                                 * torch.exp(log_Z)
+                                 * negative_samples)
             loss = - (~neigh_mask * torch.log(estimator.clamp(1e-4, 1))) \
-                - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
+                   - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
+
         elif self.loss_mode == "neg_sample":
-            estimator = probits / (probits + self.noise_in_estimator)
+            # estimator rewritten for numerical stability as for ncvis
+            estimator = 1 / (1 + self.noise_in_estimator * (dists + self.eps))
             loss = - (~neigh_mask * torch.log(estimator.clamp(1e-4, 1))) \
-                - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
-        elif self.loss_mode == "ince_pos":
-            # loss from e.g. sohn et al 2016, includes pos similarity in denominator
-            loss = - (self.temperature / self.base_temperature) * (
-                    (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
-                    - torch.log(probits.clamp(1e-4, 1).sum(axis=1))
-            )
+                   - (neigh_mask * torch.log((1 - estimator).clamp(1e-4, 1)))
+
         else:
-            # loss simclr
-            loss = - (self.temperature / self.base_temperature) * (
-                (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
-                - torch.log((neigh_mask * probits.clamp(1e-4, 1)).sum(axis=1))
+
+            # Cauchy affinities
+            probits = torch.div(
+                    1,
+                    self.eps + dists
             )
+            # probits *= neigh_mask
+
+            if self.loss_mode == "umap":
+                # cross entropy parametric umap loss
+                loss = - (~neigh_mask * torch.log(probits.clamp(1e-4, 1))) \
+                    - (neigh_mask * torch.log((1 - probits).clamp(1e-4, 1)))
+            elif self.loss_mode == "ince_pos":
+                # loss from e.g. sohn et al 2016, includes pos similarity in denominator
+                loss = - (self.temperature / self.base_temperature) * (
+                        (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
+                        - torch.log(probits.clamp(1e-4, 1).sum(axis=1))
+                )
+            else:
+                # loss simclr
+                loss = - (self.temperature / self.base_temperature) * (
+                    (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
+                    - torch.log((neigh_mask * probits.clamp(1e-4, 1)).sum(axis=1))
+                )
         return loss.sum()
