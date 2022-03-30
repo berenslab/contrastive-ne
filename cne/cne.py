@@ -77,6 +77,7 @@ class ContrastiveEmbedding(object):
             temperature=0.5,
             noise_in_estimator=1.,
             Z_bar=None,
+            eps=1.0,
             loss_mode="umap",
             optimizer="adam",
             anneal_lr=False,
@@ -103,6 +104,7 @@ class ContrastiveEmbedding(object):
         self.print_freq_epoch = print_freq_epoch
         self.print_freq_in_epoch = print_freq_in_epoch
         self.log_Z = None
+        self.eps = eps
         if self.loss_mode == "ncvis":
             self.log_Z = torch.nn.Parameter(torch.tensor(0.0),
                                             requires_grad=True)
@@ -128,7 +130,8 @@ class ContrastiveEmbedding(object):
             negative_samples=self.negative_samples,
             temperature=self.temperature,
             loss_mode=self.loss_mode,
-            noise_in_estimator = torch.tensor(self.noise_in_estimator).to("cuda")
+            noise_in_estimator = torch.tensor(self.noise_in_estimator).to("cuda"),
+            eps = torch.tensor(self.eps).to("cuda")
         )
 
         params = self.model.parameters() if self.loss_mode != "ncvis" else \
@@ -216,13 +219,15 @@ class ContrastiveLoss(torch.nn.Module):
                  temperature=0.07,
                  loss_mode='all',
                  base_temperature=0.07,
-                 noise_in_estimator=1.):
+                 noise_in_estimator=1.,
+                 eps=1.):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
         self.temperature = temperature
         self.loss_mode = loss_mode
         self.base_temperature = base_temperature
         self.noise_in_estimator = noise_in_estimator
+        self.eps = eps
 
     def forward(self, features, log_Z=None):
         """Compute loss for model. SimCLR unsupervised loss:
@@ -264,7 +269,7 @@ class ContrastiveLoss(torch.nn.Module):
         # Cauchy affinities
         probits = torch.div(
                 1,
-                1 + dists
+                self.eps + dists
         )
 
         # probits *= neigh_mask
