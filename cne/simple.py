@@ -73,6 +73,64 @@ class NumpyToIndicesDataset(torch.utils.data.Dataset):
         return i
 
 
+# from https://discuss.pytorch.org/t/dataloader-much-slower-than-manual-batching/27014/6
+class FastTensorDataLoader:
+    """
+    A DataLoader-like object for a set of tensors that can be much faster than
+    TensorDataset + DataLoader because dataloader grabs individual indices of
+    the dataset and calls cat (slow).
+    """
+    def __init__(self, neighbor_mat, batch_size=32, shuffle=False):
+        """
+        Initialize a FastTensorDataLoader.
+
+        :param *tensors: tensors to store. Must have the same length @ dim 0.
+        :param batch_size: batch size to load.
+        :param shuffle: if True, shuffle the data *in-place* whenever an
+            iterator is created out of this object.
+
+        :returns: A FastTensorDataLoader.
+        """
+
+        neighbor_mat = neighbor_mat.tocoo()
+        tensors = [torch.tensor(neighbor_mat.row),
+                   torch.tensor(neighbor_mat.col)]
+        assert all(t.shape[0] == tensors[0].shape[0] for t in tensors)
+        self.tensors = tensors
+
+        self.dataset_len = self.tensors[0].shape[0]
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+
+        # Calculate # batches
+        n_batches, remainder = divmod(self.dataset_len, self.batch_size)
+        if remainder > 0:
+            n_batches += 1
+        self.n_batches = n_batches
+
+    def __iter__(self):
+        if self.shuffle:
+            self.indices = torch.randperm(self.dataset_len)
+        else:
+            self.indices = None
+        self.i = 0
+        return self
+
+    def __next__(self):
+        if self.i >= self.dataset_len:
+            raise StopIteration
+        if self.indices is not None:
+            indices = self.indices[self.i:self.i+self.batch_size]
+            batch = tuple(torch.index_select(t, 0, indices) for t in self.tensors)
+        else:
+            batch = tuple(t[self.i:self.i+self.batch_size] for t in self.tensors)
+        self.i += self.batch_size
+        return batch
+
+    def __len__(self):
+        return self.n_batches
+
+
 class FCNetwork(torch.nn.Module):
     "Fully-connected network"
 
@@ -173,23 +231,30 @@ class CNE(object):
         else:
             self.neighbor_mat = graph.tocsr()
 
-        data_seed = 33
+
         if self.parametric:
-            self.dataset = NeighborTransformData(X, self.neighbor_mat, data_seed)
+            data_seed = 33
+            self.dataset = NeighborTransformData(X, self.neighbor_mat,
+                                                 data_seed)
+
+            # old non parametric version used:
+            # self.dataset = NeighborTransformIndices(self.neighbor_mat)
+
+            seed = 6267340091634178711
+            gen = torch.Generator().manual_seed(seed)
+            self.dataloader = torch.utils.data.DataLoader(
+                self.dataset,
+                shuffle=True,
+                batch_size=self.cne.batch_size,
+                generator=gen,
+                num_workers=self.num_workers,
+                pin_memory=True,
+                persistent_workers=True
+            )
         else:
-            self.dataset = NeighborTransformIndices(self.neighbor_mat)
-
-        seed = 6267340091634178711
-        gen = torch.Generator().manual_seed(seed)
-        self.dataloader = torch.utils.data.DataLoader(
-            self.dataset,
-            shuffle=True,
-            batch_size=self.cne.batch_size,
-            generator=gen,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            persistent_workers=True
-        )
-
+            # much faster but number of processes cannot be controlled
+            self.dataloader = FastTensorDataLoader(self.neighbor_mat,
+                                                   shuffle=True,
+                                                   batch_size=self.cne.batch_size)
         self.cne.fit(self.dataloader, len(X))
         return self
