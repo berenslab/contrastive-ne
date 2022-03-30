@@ -304,4 +304,4 @@ class ContrastiveLoss(torch.nn.Module):
                 (torch.log(probits.clamp(1e-4, 1)[~neigh_mask]))
                 - torch.log((neigh_mask * probits.clamp(1e-4, 1)).sum(axis=1))
             )
-        return loss.mean()
+        return loss.sum()
