@@ -255,11 +255,16 @@ class ContrastiveLoss(torch.nn.Module):
         origs = features[:b]
 
         # uniform probability for all points in the minibatch
-        neg_inds = torch.randint(0, 2 * b, (b, negative_samples))
+        neg_inds = torch.randint(0,
+                                 2 * b,
+                                 (b, negative_samples),
+                                 device=features.device)
 
         # now add transformed explicitly
-        neigh_inds = torch.hstack((torch.arange(b, 2*b)[:, None],
-                                   neg_inds)).to(features.device)
+        neigh_inds = torch.hstack((torch.arange(b,
+                                                2*b,
+                                                device=features.device)[:, None],
+                                   neg_inds))
         neighbors = features[neigh_inds]
 
         # `neigh_mask` indicates which samples feel attractive force
