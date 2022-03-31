@@ -80,7 +80,7 @@ class FastTensorDataLoader:
     TensorDataset + DataLoader because dataloader grabs individual indices of
     the dataset and calls cat (slow).
     """
-    def __init__(self, neighbor_mat, batch_size=32, shuffle=False):
+    def __init__(self, neighbor_mat, batch_size=32, shuffle=False, on_gpu=False):
         """
         Initialize a FastTensorDataLoader.
 
@@ -96,6 +96,10 @@ class FastTensorDataLoader:
         tensors = [torch.tensor(neighbor_mat.row),
                    torch.tensor(neighbor_mat.col)]
         assert all(t.shape[0] == tensors[0].shape[0] for t in tensors)
+        self.device = "cpu"
+        if on_gpu:
+            self.device="cuda"
+            tensors = [tensor.to(self.device) for tensor in tensors]
         self.tensors = tensors
 
         self.dataset_len = self.tensors[0].shape[0]
@@ -108,9 +112,11 @@ class FastTensorDataLoader:
             n_batches += 1
         self.n_batches = n_batches
 
+        self.batch_size = torch.tensor(self.batch_size, dtype=int).to(self.device)
+
     def __iter__(self):
         if self.shuffle:
-            self.indices = torch.randperm(self.dataset_len)
+            self.indices = torch.randperm(self.dataset_len, device=self.device)
         else:
             self.indices = None
         self.i = 0
@@ -154,11 +160,12 @@ class FCNetwork(torch.nn.Module):
 
 
 class CNE(object):
-    def __init__(self, model=None, k=15, parametric=True, num_workers=0, **kwargs):
+    def __init__(self, model=None, k=15, parametric=True, num_workers=0, on_gpu=True, **kwargs):
         self.model = model
         self.k = k
         self.parametric = parametric
         self.num_workers = num_workers
+        self.on_gpu = on_gpu
         # self.batch_size = batch_size
         self.kwargs = kwargs
 
@@ -252,9 +259,9 @@ class CNE(object):
                 persistent_workers=True
             )
         else:
-            # much faster but number of processes cannot be controlled
             self.dataloader = FastTensorDataLoader(self.neighbor_mat,
                                                    shuffle=True,
-                                                   batch_size=self.cne.batch_size)
+                                                   batch_size=self.cne.batch_size,
+                                                   on_gpu=self.on_gpu)
         self.cne.fit(self.dataloader, len(X))
         return self
