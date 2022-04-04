@@ -346,5 +346,7 @@ class ContrastiveLoss(torch.nn.Module):
                 (torch.log(probits.clamp(self.clamp_low, 1)[~neigh_mask]))
                 - torch.log((neigh_mask * probits.clamp(self.clamp_low, 1)).sum(axis=1))
             )
+        else:
+            raise ValueError(f"Unknown loss_mode “{self.loss_mode}”")
 
         return loss.sum()
