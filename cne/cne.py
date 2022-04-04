@@ -81,6 +81,7 @@ class ContrastiveEmbedding(object):
             eps=1.0,
             clamp_low=1e-4,
             loss_mode="umap",
+            metric="euclidean",
             optimizer="adam",
             anneal_lr=False,
             clip_grad=True,
@@ -98,6 +99,7 @@ class ContrastiveEmbedding(object):
         self.momentum = momentum
         self.temperature = temperature
         self.loss_mode: str = loss_mode
+        self.metric: str = metric
         self.optimizer = optimizer
         self.anneal_lr: bool = anneal_lr
         self.lr_min_factor: float = lr_min_factor
@@ -134,9 +136,9 @@ class ContrastiveEmbedding(object):
             negative_samples=self.negative_samples,
             temperature=self.temperature,
             loss_mode=self.loss_mode,
-            noise_in_estimator = torch.tensor(self.noise_in_estimator).to("cuda"),
-            eps = torch.tensor(self.eps).to("cuda"),
-            clamp_low = self.clamp_low
+            noise_in_estimator=torch.tensor(self.noise_in_estimator).to("cuda"),
+            eps=torch.tensor(self.eps).to("cuda"),
+            clamp_low=self.clamp_low
         )
 
         params = self.model.parameters() if self.loss_mode != "ncvis" else \
@@ -224,14 +226,16 @@ class ContrastiveLoss(torch.nn.Module):
     def __init__(self, negative_samples=5,
                  temperature=0.07,
                  loss_mode='all',
-                 base_temperature=0.07,
-                 noise_in_estimator=1.,
-                 eps=1.,
-                 clamp_low = 1e-4):
+                 metric="euclidean",
+                 base_temperature=1,
+                 eps=1.0,
+                 noise_in_estimator=1.0,
+                 clamp_low=1e-4):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
         self.temperature = temperature
         self.loss_mode = loss_mode
+        self.metric = metric
         self.base_temperature = base_temperature
         self.noise_in_estimator = noise_in_estimator
         self.eps = eps
@@ -258,10 +262,11 @@ class ContrastiveLoss(torch.nn.Module):
         origs = features[:b]
 
         # uniform probability for all points in the minibatch
-        neg_inds = torch.randint(0,
-                                 2 * b,
-                                 (b, negative_samples),
+        neg_inds = torch.randint(0, 2 * b - 1, (b, negative_samples),
                                  device=features.device)
+        neg_inds += (torch.arange(
+            1, b + 1, device=features.device
+        ) - 2 * b)[:, None]
 
         # now add transformed explicitly
         neigh_inds = torch.hstack((torch.arange(b,
@@ -276,8 +281,26 @@ class ContrastiveLoss(torch.nn.Module):
         neigh_mask[:, 0] = False
 
         # compute probits
-        diff = (origs[:, None] - neighbors)
-        dists = (diff ** 2).sum(axis=2)
+        if self.metric == "euclidean":
+            dists = ((origs[:, None] - neighbors) ** 2).sum(axis=2)
+            # Cauchy affinities
+            probits = torch.div(
+                    1,
+                    self.eps + dists
+            )
+        elif self.metric == "cosine":
+            norm = torch.nn.functional.normalize
+            o = norm(origs).unsqueeze(1)
+            n = norm(neighbors).transpose(1, 2)
+            logits = (
+                torch.bmm(o, n).squeeze() - 1
+            ) / self.temperature
+            # logits_max, _ = logits.max(dim=1, keepdim=True)
+            # logits -= logits_max.detach()
+            # logits -= logits.max().detach()
+            probits = torch.exp(logits)
+        else:
+            raise ValueError(f"Unknown metric “{self.metric}”")
 
         if self.loss_mode == "ncvis":
             # for proper ncvis it should be negative_samples * p_noise. But for
@@ -285,43 +308,43 @@ class ContrastiveLoss(torch.nn.Module):
             # here. Also, we do not use a uniform noise distribution as we sample
             # negative samples from the batch.
 
-            # estimator is (cauchy / Z) / ( cauchy / Z + neg samples)). For numerical
-            # stability rewrite to 1 / ( 1 + (d**2 + eps) * Z * m)
-            estimator = 1 / (1 + (dists + self.eps)
-                                 * torch.exp(log_Z)
-                                 * negative_samples)
-            loss = - (~neigh_mask * torch.log(estimator.clamp(self.clamp_low, 1))) \
-                   - (neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, 1)))
-
-        elif self.loss_mode == "neg_sample":
-            # estimator rewritten for numerical stability as for ncvis
-            estimator = 1 / (1 + self.noise_in_estimator * (dists + self.eps))
-            loss = - (~neigh_mask * torch.log(estimator.clamp(self.clamp_low, 1))) \
-                   - (neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, 1)))
-
-        else:
-
-            # Cauchy affinities
-            probits = torch.div(
-                    1,
-                    self.eps + dists
-            )
-            # probits *= neigh_mask
-
-            if self.loss_mode == "umap":
-                # cross entropy parametric umap loss
-                loss = - (~neigh_mask * torch.log(probits.clamp(self.clamp_low, 1))) \
-                    - (neigh_mask * torch.log((1 - probits).clamp(self.clamp_low, 1)))
-            elif self.loss_mode == "ince_pos":
-                # loss from e.g. sohn et al 2016, includes pos similarity in denominator
-                loss = - (self.temperature / self.base_temperature) * (
-                        (torch.log(probits.clamp(self.clamp_low, 1)[~neigh_mask]))
-                        - torch.log(probits.clamp(self.clamp_low, 1).sum(axis=1))
-                )
+            if self.metric == "euclidean":
+                # estimator is (cauchy / Z) / ( cauchy / Z + neg samples)). For numerical
+                # stability rewrite to 1 / ( 1 + (d**2 + eps) * Z * m)
+                estimator = 1 / (1 + (dists + self.eps)
+                                     * torch.exp(log_Z)
+                                     * negative_samples)
             else:
-                # loss simclr
-                loss = - (self.temperature / self.base_temperature) * (
-                    (torch.log(probits.clamp(self.clamp_low, 1)[~neigh_mask]))
-                    - torch.log((neigh_mask * probits.clamp(self.clamp_low, 1)).sum(axis=1))
-                )
+                probits = probits / torch.exp(log_Z)
+                estimator = probits / (probits + negative_samples)
+
+            loss = - (~neigh_mask * torch.log(estimator.clamp(self.clamp_low, 1))) \
+                   - (neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, 1)))
+        elif self.loss_mode == "neg_sample":
+            if self.metric == "euclidean":
+                # estimator rewritten for numerical stability as for ncvis
+                estimator = 1 / (1 + self.noise_in_estimator * (dists + self.eps))
+            else:
+                estimator = probits / (probits + self.noise_in_estimator)
+
+            loss = - (~neigh_mask * torch.log(estimator.clamp(self.clamp_low, 1))) \
+                   - (neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, 1)))
+
+        elif self.loss_mode == "umap":
+            # cross entropy parametric umap loss
+            loss = - (~neigh_mask * torch.log(probits.clamp(self.clamp_low, 1))) \
+                - (neigh_mask * torch.log((1 - probits).clamp(self.clamp_low, 1)))
+        elif self.loss_mode == "infonce":
+            # loss from e.g. sohn et al 2016, includes pos similarity in denominator
+            loss = - (self.temperature / self.base_temperature) * (
+                (torch.log(probits.clamp(self.clamp_low, 1)[~neigh_mask]))
+                - torch.log(probits.clamp(self.clamp_low, 1).sum(axis=1))
+            )
+        elif self.loss_mode == "infonce_alt":
+            # loss simclr
+            loss = - (self.temperature / self.base_temperature) * (
+                (torch.log(probits.clamp(self.clamp_low, 1)[~neigh_mask]))
+                - torch.log((neigh_mask * probits.clamp(self.clamp_low, 1)).sum(axis=1))
+            )
+
         return loss.sum()
