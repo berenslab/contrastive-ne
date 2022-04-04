@@ -213,7 +213,7 @@ class CNE(object):
 
         # use higher learning rate for non-parametric version
         if "learning_rate" not in self.kwargs.keys():
-            lr = 0.001 if self.parametric else 0.1
+            lr = 0.001 if self.parametric else 1.0
             self.kwargs["learning_rate"] = lr
         self.cne = ContrastiveEmbedding(self.model, **self.kwargs)
 

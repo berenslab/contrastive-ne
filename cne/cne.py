@@ -73,6 +73,7 @@ class ContrastiveEmbedding(object):
             n_epochs=50,
             device="cuda:0",
             learning_rate=0.001,
+            lr_min_factor=0.1,
             momentum=0.9,
             temperature=0.5,
             noise_in_estimator=1.,
@@ -99,6 +100,7 @@ class ContrastiveEmbedding(object):
         self.loss_mode: str = loss_mode
         self.optimizer = optimizer
         self.anneal_lr: bool = anneal_lr
+        self.lr_min_factor: float = lr_min_factor
         self.clip_grad: bool = clip_grad
         self.save_freq: int = save_freq
         self.callback = callback
@@ -172,7 +174,8 @@ class ContrastiveEmbedding(object):
 
         batch_losses = []
         for epoch in range(self.n_epochs):
-            lr = ((max(0.1, 1 - self.n_epochs / (1 + epoch)) * self.learning_rate)
+            lr = ((max(self.lr_min_factor, 1 - epoch / self.n_epochs)
+                   * self.learning_rate)
                   if self.anneal_lr
                   else self.learning_rate)
             for param_group in optimizer.param_groups:
