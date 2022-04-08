@@ -257,16 +257,21 @@ class ContrastiveLoss(torch.nn.Module):
 
         # We can at most sample this many samples from the batch.
         # `b` can be lower than `self.negative_samples` in the last batch.
-        negative_samples = min(self.negative_samples, 2 * (b - 1))
+        negative_samples = min(self.negative_samples, 2 * b - 1)
 
-        origs = features[:b]
-
-        # uniform probability for all points in the minibatch
-        neg_inds = torch.randint(0, 2 * b - 1, (b, negative_samples),
-                                 device=features.device)
-        neg_inds += (torch.arange(
-            1, b + 1, device=features.device
-        ) - 2 * b)[:, None]
+        if negative_samples < 2 * b - 1:
+            # uniform probability for all points in the minibatch,
+            # we sample points for repulsion randomly
+            neg_inds = torch.randint(0, 2 * b - 1, (b, negative_samples),
+                                     device=features.device)
+            neg_inds += (torch.arange(
+                1, b + 1, device=features.device
+            ) - 2 * b)[:, None]
+        else:
+            # full batch repulsion
+            all_inds = torch.repeat_interleave(torch.arange(b)[None, :], b, dim=0)
+            not_self = ~torch.eye(b, dtype=bool)
+            neg_inds = all_inds[not_self]
 
         # now add transformed explicitly
         neigh_inds = torch.hstack((torch.arange(b,
@@ -279,6 +284,8 @@ class ContrastiveLoss(torch.nn.Module):
         # and which ones repel each other
         neigh_mask = torch.ones_like(neigh_inds, dtype=torch.bool)
         neigh_mask[:, 0] = False
+
+        origs = features[:b]
 
         # compute probits
         if self.metric == "euclidean":
