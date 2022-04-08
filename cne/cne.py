@@ -269,9 +269,16 @@ class ContrastiveLoss(torch.nn.Module):
             ) - 2 * b)[:, None]
         else:
             # full batch repulsion
-            all_inds = torch.repeat_interleave(torch.arange(b)[None, :], b, dim=0)
-            not_self = ~torch.eye(b, dtype=bool)
-            neg_inds = all_inds[not_self]
+            all_inds = torch.repeat_interleave(
+                torch.arange(b, device=features.device)[None, :], b, dim=0
+            )
+            not_self = ~torch.eye(b, dtype=bool, device=features.device)
+            neg_inds1 = all_inds[not_self].reshape(b, b - 1)
+
+            neg_inds2 = torch.repeat_interleave(
+                torch.arange(b, 2 * b, device=features.device)[None, :], b, dim=0
+            )
+            neg_inds = torch.hstack((neg_inds1, neg_inds2))
 
         # now add transformed explicitly
         neigh_inds = torch.hstack((torch.arange(b,
