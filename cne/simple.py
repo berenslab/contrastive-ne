@@ -80,7 +80,7 @@ class FastTensorDataLoader:
     TensorDataset + DataLoader because dataloader grabs individual indices of
     the dataset and calls cat (slow).
     """
-    def __init__(self, neighbor_mat, batch_size=32, shuffle=False, on_gpu=False):
+    def __init__(self, neighbor_mat, batch_size=32, shuffle=False, on_gpu=False, drop_last=False):
         """
         Initialize a FastTensorDataLoader.
 
@@ -105,12 +105,14 @@ class FastTensorDataLoader:
         self.dataset_len = self.tensors[0].shape[0]
         self.batch_size = batch_size
         self.shuffle = shuffle
+        self.drop_last = drop_last
 
         # Calculate # batches
         n_batches, remainder = divmod(self.dataset_len, self.batch_size)
-        if remainder > 0:
+        if remainder > 0 and not self.drop_last:
             n_batches += 1
         self.n_batches = n_batches
+        self.dataset_len = self.n_batches * self.batch_size
 
         self.batch_size = torch.tensor(self.batch_size, dtype=int).to(self.device)
 
@@ -170,32 +172,42 @@ class CNE(object):
         self.kwargs = kwargs
 
 
-    def fit_transform(self, X, y=None):
-        self.fit(X, y)
+    def fit_transform(self, X, init=None, graph=None):
+        self.fit(X, init=init, graph=graph)
+        return self.transform(X)
 
+    def transform(self, X):
         if self.parametric:
+            X = X.reshape(X.shape[0], -1)
             self.dataset_plain = NumpyToTensorDataset(X)
+            self.dl_unshuf = torch.utils.data.DataLoader(
+                self.dataset_plain,
+                shuffle=False,
+                batch_size=self.cne.batch_size,
+            )
+            model = self.network
+            device = self.cne.device
+            embd = np.vstack([model(batch.to(device))
+                            .detach().cpu().numpy()
+                            for batch in self.dl_unshuf])
         else:
-            self.dataset_plain = NumpyToIndicesDataset(len(X))
+            embd = self.model.weights.detach().cpu().numpy()
 
-        self.dl_unshuf = torch.utils.data.DataLoader(
-            self.dataset_plain,
-            shuffle=False,
-            batch_size=self.cne.batch_size,
-        )
-        model = self.cne.model
-        device = self.cne.device
-        ar = np.vstack([model(batch.to(device))
-                        .cpu().detach().numpy()
-                        for batch in self.dl_unshuf])
-        return ar
 
-    def fit(self, X, y=None, init=None, graph=None):
+        return embd
 
+    def fit(self, X, init=None, graph=None):
+        X = X.reshape(X.shape[0], -1)
         in_dim = X.shape[1]
         if self.model is None:
             if self.parametric:
-                self.model = FCNetwork(in_dim)
+                self.embd_layer = torch.nn.Embedding.from_pretrained(torch.tensor(X),
+                                                                     freeze=True)
+                self.network = FCNetwork(in_dim)
+                self.model = torch.nn.Sequential(
+                    self.embd_layer,
+                    self.network
+                )
             else:
                 if init is None:
                     # default to pca
@@ -239,7 +251,7 @@ class CNE(object):
             self.neighbor_mat = graph.tocsr()
 
 
-        if self.parametric:
+        if 0:
             data_seed = 33
             self.dataset = NeighborTransformData(X, self.neighbor_mat,
                                                  data_seed)
@@ -258,10 +270,9 @@ class CNE(object):
                 pin_memory=True,
                 persistent_workers=True
             )
-        else:
-            self.dataloader = FastTensorDataLoader(self.neighbor_mat,
-                                                   shuffle=True,
-                                                   batch_size=self.cne.batch_size,
-                                                   on_gpu=self.on_gpu)
+        self.dataloader = FastTensorDataLoader(self.neighbor_mat,
+                                               shuffle=True,
+                                               batch_size=self.cne.batch_size,
+                                               on_gpu=self.on_gpu)
         self.cne.fit(self.dataloader, len(X))
         return self
