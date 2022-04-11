@@ -111,7 +111,7 @@ class ContrastiveEmbedding(object):
         self.log_Z = None
         self.eps = eps
         self.clamp_low = clamp_low
-        if self.loss_mode == "ncvis":
+        if self.loss_mode == "nce":
             self.log_Z = torch.nn.Parameter(torch.tensor(0.0),
                                             requires_grad=True)
 
@@ -141,7 +141,7 @@ class ContrastiveEmbedding(object):
             clamp_low=self.clamp_low
         )
 
-        params = self.model.parameters() if self.loss_mode != "ncvis" else \
+        params = self.model.parameters() if self.loss_mode != "nce" else \
             list(self.model.parameters()) + [self.log_Z]
 
         if self.optimizer == "sgd":
@@ -158,7 +158,7 @@ class ContrastiveEmbedding(object):
             raise ValueError("Only optimizer 'adam' and 'sgd' allowed.")
 
         self.model.to(self.device)
-        if self.loss_mode == "ncvis":
+        if self.loss_mode == "nce":
             self.log_Z.to(self.device)
 
         # initial callback
@@ -269,15 +269,16 @@ class ContrastiveLoss(torch.nn.Module):
             ) - 2 * b)[:, None]
         else:
             # full batch repulsion
-            all_inds = torch.repeat_interleave(
+            all_inds1 = torch.repeat_interleave(
                 torch.arange(b, device=features.device)[None, :], b, dim=0
             )
             not_self = ~torch.eye(b, dtype=bool, device=features.device)
-            neg_inds1 = all_inds[not_self].reshape(b, b - 1)
+            neg_inds1 = all_inds1[not_self].reshape(b, b - 1)
 
-            neg_inds2 = torch.repeat_interleave(
+            all_inds2 = torch.repeat_interleave(
                 torch.arange(b, 2 * b, device=features.device)[None, :], b, dim=0
             )
+            neg_inds2 = all_inds2[not_self].reshape(b, b - 1)
             neg_inds = torch.hstack((neg_inds1, neg_inds2))
 
         # now add transformed explicitly
