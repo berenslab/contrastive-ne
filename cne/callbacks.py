@@ -15,11 +15,13 @@ class Logger(Callback):
                  loss_type=None,
                  graph=None,
                  log_norms=False,
-                 log_kl=False):
+                 log_kl=False,
+                 n=None):
 
         self.log_embds = log_embds
         if self.log_embds:
             self.embds = []
+            self.Zs = []
 
         self.graph = graph.tocoo() if graph is not None else graph
 
@@ -40,11 +42,26 @@ class Logger(Callback):
             assert vis_utils_available, "Need vis_utils package to log normalization constant."
             self.norms = []
 
+        if n is not None:
+            self.ds = torch.utils.data.TensorDataset(torch.arange(n))
+            self.dl = torch.utils.data.DataLoader(self.ds,
+                                                  batch_size=256,
+                                                  shuffle=False)
+
     def __call__(self, epoch, model, negative_samples, loss_mode, log_Z=None, noise_in_estimator=None):
         if self.log_embds or self.log_norm or self.log_losses or self.log_kl:
-            assert isinstance(model, torch.nn.modules.sparse.Embedding), \
-            f"To log the model must be of type torch.nn.modules.sparse.Embedding but is of type {type(model)}"
-            embd = model.weight.detach().cpu().numpy()
+            if isinstance(model, torch.nn.modules.sparse.Embedding):
+                # non-parametric case, just get all embeddings from embedding layer
+                embd = model.weight.detach().cpu().numpy()
+            else:
+                # parametric case, model is Embedding layer + FCNetwork
+                # Just feed indices from self.dl
+                device = model[0].weight.device
+                embd = np.vstack([model(batch[0].to(device))
+                                 .detach().cpu().numpy()
+                                  for batch in self.dl])
+            if log_Z is not None:
+                self.Zs.append(torch.exp(log_Z).detach().cpu().numpy())
 
         if self.log_embds:
             self.embds.append(embd)
@@ -94,12 +111,13 @@ class Logger(Callback):
                                           norm_over_pos=False)
                             )
         if self.log_norm:
-            self.norms.append(compute_normalization(embd,
-                                                    sim_func="cauchy",
-                                                    no_diag=True,
-                                                    a=1.0,
-                                                    b=1.0,
-                                                    eps=float(np.finfo(float).eps)))
+            norm = compute_normalization(embd,
+                                         sim_func="cauchy",
+                                         no_diag=True,
+                                         a=1.0,
+                                         b=1.0,
+                                         eps=float(np.finfo(float).eps))
+            self.norms.append(norm.detach().cpu().numpy())
 
 
 
