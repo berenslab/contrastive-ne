@@ -141,8 +141,10 @@ class ContrastiveEmbedding(object):
             clamp_low=self.clamp_low
         )
 
-        params = self.model.parameters() if self.loss_mode != "ncvis" else \
-            list(self.model.parameters()) + [self.log_Z]
+        params = [{"params": self.model.parameters()}]
+        if self.loss_mode == "ncvis":
+            params +=  [{"params": self.log_Z,
+                         "lr": 0.001}] # make sure log_Z always has a sufficiently small lr
 
         if self.optimizer == "sgd":
             optimizer = torch.optim.SGD(
@@ -160,6 +162,7 @@ class ContrastiveEmbedding(object):
         self.model.to(self.device)
         if self.loss_mode == "ncvis":
             self.log_Z.to(self.device)
+            optimizer
 
         # initial callback
         if (
