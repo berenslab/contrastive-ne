@@ -316,7 +316,7 @@ class ContrastiveLoss(torch.nn.Module):
         else:
             raise ValueError(f"Unknown metric “{self.metric}”")
 
-        if self.loss_mode == "ncvis":
+        if self.loss_mode == "nce":
             # for proper ncvis it should be negative_samples * p_noise. But for
             # uniform noise distribution we would need the size of the dataset
             # here. Also, we do not use a uniform noise distribution as we sample
