@@ -175,7 +175,17 @@ class ContrastiveEmbedding(object):
                           )
 
         batch_losses = []
+        mem_dict = {
+            "active_bytes.all.peak": [],
+            "allocated_bytes.all.peak": [],
+            "reserved_bytes.all.peak": [],
+            "reserved_bytes.all.allocated": [],
+        }
+
         for epoch in range(self.n_epochs):
+            info = torch.cuda.memory_stats(self.device)
+            [mem_dict[k].append(info[k]) for k in mem_dict.keys()]
+
             lr = ((max(self.lr_min_factor, 1 - epoch / self.n_epochs)
                    * self.learning_rate)
                   if self.anneal_lr
@@ -211,6 +221,7 @@ class ContrastiveEmbedding(object):
                 print(f"Finished epoch {epoch}/{self.n_epochs}", file=sys.stderr)
 
         self.losses = batch_losses
+        self.mem_dict = mem_dict
         self.embedding_ = None
         return self
 
