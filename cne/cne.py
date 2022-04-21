@@ -136,8 +136,8 @@ class ContrastiveEmbedding(object):
             negative_samples=self.negative_samples,
             temperature=self.temperature,
             loss_mode=self.loss_mode,
-            noise_in_estimator=torch.tensor(self.noise_in_estimator).to("cuda"),
-            eps=torch.tensor(self.eps).to("cuda"),
+            noise_in_estimator=torch.tensor(self.noise_in_estimator).to(self.device),
+            eps=torch.tensor(self.eps).to(self.device),
             clamp_low=self.clamp_low
         )
 
