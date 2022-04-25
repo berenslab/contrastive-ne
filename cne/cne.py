@@ -84,6 +84,7 @@ class ContrastiveEmbedding(object):
             metric="euclidean",
             optimizer="adam",
             anneal_lr=False,
+            weight_decay=0,
             clip_grad=True,
             save_freq=25,
             callback=None,
@@ -102,6 +103,7 @@ class ContrastiveEmbedding(object):
         self.metric: str = metric
         self.optimizer = optimizer
         self.anneal_lr: bool = anneal_lr
+        self.weight_decay = weight_decay
         self.lr_min_factor: float = lr_min_factor
         self.clip_grad: bool = clip_grad
         self.save_freq: int = save_freq
@@ -149,13 +151,15 @@ class ContrastiveEmbedding(object):
                 params,
                 lr=self.learning_rate,
                 momentum=self.momentum,
-                # weight_decay=self.weight_decay,
+                weight_decay=self.weight_decay,
             )
         elif self.optimizer == "adam":
             optimizer = torch.optim.Adam(params,
+                                         weight_decay=self.weight_decay,
                                          lr=self.learning_rate,)
         else:
-            raise ValueError("Only optimizer 'adam' and 'sgd' allowed.")
+            raise ValueError("Only optimizer 'adam' and 'sgd' allowed, "
+                             f"but is {self.optimizer}.")
 
         self.model.to(self.device)
         if self.loss_mode == "nce":
