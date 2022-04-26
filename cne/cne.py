@@ -412,7 +412,7 @@ def new_lr(
     elif anneal_lr == "linear":
         lr = learning_rate * min(lr_min_factor, 1 - cur_epoch / total_epochs)
     elif anneal_lr == "cosine":
-        eta_min = lr * lr_decay_rate ** 3
+        eta_min = learning_rate * lr_decay_rate ** 3
         lr = eta_min + (lr - eta_min) * (
             1 + np.cos(np.pi * cur_epoch / total_epochs)) / 2
     else:
