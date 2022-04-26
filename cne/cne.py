@@ -198,8 +198,9 @@ class ContrastiveEmbedding(object):
         }
 
         for epoch in range(self.n_epochs):
-            info = torch.cuda.memory_stats(self.device)
-            [mem_dict[k].append(info[k]) for k in mem_dict.keys()]
+            if "cuda" in self.device:
+                info = torch.cuda.memory_stats(self.device)
+                [mem_dict[k].append(info[k]) for k in mem_dict.keys()]
 
             lr = new_lr(
                 self.learning_rate,
