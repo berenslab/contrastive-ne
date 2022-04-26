@@ -1,6 +1,7 @@
 import sys
 import time
 
+import numpy as np
 import torch
 
 
@@ -85,7 +86,10 @@ class ContrastiveEmbedding(object):
             loss_mode="umap",
             metric="euclidean",
             optimizer="adam",
-            anneal_lr=False,
+            weight_decay=0,
+            anneal_lr="none",
+            lr_decay_rate=0.1,
+            lr_decay_epochs=None,  # unused for now
             clip_grad=True,
             save_freq=25,
             callback=None,
@@ -103,8 +107,13 @@ class ContrastiveEmbedding(object):
         self.loss_mode: str = loss_mode
         self.metric: str = metric
         self.optimizer = optimizer
-        self.anneal_lr: bool = anneal_lr
+        self.weight_decay = weight_decay
+        if isinstance(anneal_lr, bool):
+            anneal_lr = "linear" if anneal_lr else "none"
+        self.anneal_lr: str = anneal_lr
         self.lr_min_factor: float = lr_min_factor
+        self.lr_decay_rate = lr_decay_rate
+        self.lr_decay_epochs = lr_decay_epochs
         self.clip_grad: bool = clip_grad
         self.save_freq: int = save_freq
         self.callback = callback
@@ -153,13 +162,15 @@ class ContrastiveEmbedding(object):
                 params,
                 lr=self.learning_rate,
                 momentum=self.momentum,
-                # weight_decay=self.weight_decay,
+                weight_decay=self.weight_decay,
             )
         elif self.optimizer == "adam":
             optimizer = torch.optim.Adam(params,
+                                         weight_decay=self.weight_decay,
                                          lr=self.learning_rate,)
         else:
-            raise ValueError("Only optimizer 'adam' and 'sgd' allowed.")
+            raise ValueError("Only optimizer 'adam' and 'sgd' allowed, "
+                             f"but is {self.optimizer}.")
 
         self.model.to(self.device)
         if self.loss_mode == "nce":
@@ -180,11 +191,26 @@ class ContrastiveEmbedding(object):
                           )
 
         batch_losses = []
+        mem_dict = {
+            "active_bytes.all.peak": [],
+            "allocated_bytes.all.peak": [],
+            "reserved_bytes.all.peak": [],
+            "reserved_bytes.all.allocated": [],
+        }
+
         for epoch in range(self.n_epochs):
-            lr = ((max(self.lr_min_factor, 1 - epoch / self.n_epochs)
-                   * self.learning_rate)
-                  if self.anneal_lr
-                  else self.learning_rate)
+            info = torch.cuda.memory_stats(self.device)
+            [mem_dict[k].append(info[k]) for k in mem_dict.keys()]
+
+            lr = new_lr(
+                self.learning_rate,
+                self.anneal_lr,
+                self.lr_decay_rate,
+                lr_min_factor=self.lr_min_factor,
+                cur_epoch=epoch,
+                total_epochs=self.n_epochs,
+                decay_epochs=self.lr_decay_epochs,
+            )
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
 
@@ -216,6 +242,7 @@ class ContrastiveEmbedding(object):
                 print(f"Finished epoch {epoch}/{self.n_epochs}", file=sys.stderr)
 
         self.losses = batch_losses
+        self.mem_dict = mem_dict
         self.embedding_ = None
         return self
 
@@ -274,15 +301,16 @@ class ContrastiveLoss(torch.nn.Module):
             ) - 2 * b)[:, None]
         else:
             # full batch repulsion
-            all_inds = torch.repeat_interleave(
+            all_inds1 = torch.repeat_interleave(
                 torch.arange(b, device=features.device)[None, :], b, dim=0
             )
             not_self = ~torch.eye(b, dtype=bool, device=features.device)
-            neg_inds1 = all_inds[not_self].reshape(b, b - 1)
+            neg_inds1 = all_inds1[not_self].reshape(b, b - 1)
 
-            neg_inds2 = torch.repeat_interleave(
+            all_inds2 = torch.repeat_interleave(
                 torch.arange(b, 2 * b, device=features.device)[None, :], b, dim=0
             )
+            neg_inds2 = all_inds2[not_self].reshape(b, b - 1)
             neg_inds = torch.hstack((neg_inds1, neg_inds2))
 
         # now add transformed explicitly
@@ -369,3 +397,26 @@ class ContrastiveLoss(torch.nn.Module):
             raise ValueError(f"Unknown loss_mode “{self.loss_mode}”")
 
         return loss.sum()
+
+
+def new_lr(
+        learning_rate,
+        anneal_lr,
+        lr_decay_rate,
+        lr_min_factor,
+        cur_epoch,
+        total_epochs,
+        decay_epochs=None,      # unused for now
+):
+    if anneal_lr == "none":
+        lr = learning_rate
+    elif anneal_lr == "linear":
+        lr = learning_rate * min(lr_min_factor, 1 - cur_epoch / total_epochs)
+    elif anneal_lr == "cosine":
+        eta_min = lr * lr_decay_rate ** 3
+        lr = eta_min + (lr - eta_min) * (
+            1 + np.cos(np.pi * cur_epoch / total_epochs)) / 2
+    else:
+        raise RuntimeError(f"Unknown learning rate annealing “{anneal_lr = }”")
+
+    return lr
