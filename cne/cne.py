@@ -22,9 +22,11 @@ def train(train_loader,
 
         images = torch.cat([item, neigh], dim=0)
         # labels = torch.cat([labels[0], labels[1]], dim=0)
-        if torch.cuda.is_available():
-            images = images.cuda(non_blocking=True)
-            # labels = labels.cuda(non_blocking=True)
+
+        images = images.to(next(model.parameters()).device)
+        #if torch.cuda.is_available():
+        #    images = images.cuda(non_blocking=True)
+        #    # labels = labels.cuda(non_blocking=True)
 
         # compute loss
         features = model(images)
@@ -111,7 +113,7 @@ class ContrastiveEmbedding(object):
         self.log_Z = None
         self.eps = eps
         self.clamp_low = clamp_low
-        if self.loss_mode == "ncvis":
+        if self.loss_mode == "nce":
             self.log_Z = torch.nn.Parameter(torch.tensor(0.0),
                                             requires_grad=True)
 
@@ -136,13 +138,13 @@ class ContrastiveEmbedding(object):
             negative_samples=self.negative_samples,
             temperature=self.temperature,
             loss_mode=self.loss_mode,
-            noise_in_estimator=torch.tensor(self.noise_in_estimator).to("cuda"),
-            eps=torch.tensor(self.eps).to("cuda"),
+            noise_in_estimator=torch.tensor(self.noise_in_estimator).to(self.device),
+            eps=torch.tensor(self.eps).to(self.device),
             clamp_low=self.clamp_low
         )
 
         params = [{"params": self.model.parameters()}]
-        if self.loss_mode == "ncvis":
+        if self.loss_mode == "nce":
             params +=  [{"params": self.log_Z,
                          "lr": 0.001}] # make sure log_Z always has a sufficiently small lr
 
@@ -160,7 +162,7 @@ class ContrastiveEmbedding(object):
             raise ValueError("Only optimizer 'adam' and 'sgd' allowed.")
 
         self.model.to(self.device)
-        if self.loss_mode == "ncvis":
+        if self.loss_mode == "nce":
             self.log_Z.to(self.device)
             optimizer
 
@@ -250,7 +252,7 @@ class ContrastiveLoss(torch.nn.Module):
 
         Args:
             features: hidden vector of shape [2 * bsz, n_views, ...].
-            log_Z: scalar, logarithm of the learnt normalization constant for ncvis.
+            log_Z: scalar, logarithm of the learnt normalization constant for nce.
         Returns:
             A loss scalar.
         """
@@ -320,7 +322,7 @@ class ContrastiveLoss(torch.nn.Module):
             raise ValueError(f"Unknown metric “{self.metric}”")
 
         if self.loss_mode == "nce":
-            # for proper ncvis it should be negative_samples * p_noise. But for
+            # for proper nce it should be negative_samples * p_noise. But for
             # uniform noise distribution we would need the size of the dataset
             # here. Also, we do not use a uniform noise distribution as we sample
             # negative samples from the batch.
@@ -339,7 +341,7 @@ class ContrastiveLoss(torch.nn.Module):
                    - (neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, 1)))
         elif self.loss_mode == "neg_sample":
             if self.metric == "euclidean":
-                # estimator rewritten for numerical stability as for ncvis
+                # estimator rewritten for numerical stability as for nce
                 estimator = 1 / (1 + self.noise_in_estimator * (dists + self.eps))
             else:
                 estimator = probits / (probits + self.noise_in_estimator)
