@@ -175,7 +175,6 @@ class ContrastiveEmbedding(object):
         self.model.to(self.device)
         if self.loss_mode == "nce":
             self.log_Z.to(self.device)
-            optimizer
 
         # initial callback
         if (
