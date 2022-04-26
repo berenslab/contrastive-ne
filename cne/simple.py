@@ -112,7 +112,6 @@ class FastTensorDataLoader:
         if remainder > 0 and not self.drop_last:
             n_batches += 1
         self.n_batches = n_batches
-        self.dataset_len = self.n_batches * self.batch_size
 
         self.batch_size = torch.tensor(self.batch_size, dtype=int).to(self.device)
 
@@ -125,7 +124,7 @@ class FastTensorDataLoader:
         return self
 
     def __next__(self):
-        if self.i >= self.dataset_len:
+        if self.i > self.dataset_len - self.batch_size:
             raise StopIteration
         if self.indices is not None:
             indices = self.indices[self.i:self.i+self.batch_size]
