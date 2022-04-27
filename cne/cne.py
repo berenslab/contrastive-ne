@@ -415,8 +415,8 @@ def new_lr(
     elif anneal_lr == "linear":
         lr = learning_rate * max(lr_min_factor, 1 - cur_epoch / total_epochs)
     elif anneal_lr == "cosine":
-        eta_min = lr * lr_decay_rate ** 3
-        lr = eta_min + (lr - eta_min) * (
+        eta_min = learning_rate * lr_decay_rate ** 3
+        lr = eta_min + (learning_rate - eta_min) * (
             1 + np.cos(np.pi * cur_epoch / total_epochs)) / 2
     else:
         raise RuntimeError(f"Unknown learning rate annealing “{anneal_lr = }”")
