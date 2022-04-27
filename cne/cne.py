@@ -123,7 +123,7 @@ class ContrastiveEmbedding(object):
         self.eps = eps
         self.clamp_low = clamp_low
         if self.loss_mode == "nce":
-            self.log_Z = torch.nn.Parameter(torch.tensor(0.0),
+            self.log_Z = torch.nn.Parameter(torch.tensor(0.0, device=self.device),
                                             requires_grad=True)
 
         if self.loss_mode == "neg_sample":
@@ -134,6 +134,9 @@ class ContrastiveEmbedding(object):
                 print("Warning: Both 'noise_in_estimator' and 'Z_bar' were specified. Only 'Z_bar' will be considered.")
         self.Z_bar = Z_bar
         self.noise_in_estimator = noise_in_estimator
+
+        # move to correct device at init, esp before registering with the optimizer
+        self.model = self.model.to(self.device)
 
     def fit(self, X: torch.utils.data.DataLoader, n: int = None):
         if self.loss_mode == "neg_sample":
@@ -172,10 +175,6 @@ class ContrastiveEmbedding(object):
             raise ValueError("Only optimizer 'adam' and 'sgd' allowed, "
                              f"but is {self.optimizer}.")
 
-        self.model.to(self.device)
-        if self.loss_mode == "nce":
-            self.log_Z.to(self.device)
-
         # initial callback
         if (
                 self.save_freq is not None
@@ -211,8 +210,11 @@ class ContrastiveEmbedding(object):
                 total_epochs=self.n_epochs,
                 decay_epochs=self.lr_decay_epochs,
             )
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
+            # this will override the different learning rate for Z in NCE!!
+            #for param_group in optimizer.param_groups:
+            #    param_group['lr'] = lr
+            # just change the lr of the first param group, not that of Z
+            optimizer.param_groups[0]["lr"] = lr
 
             bl = train(X,
                        self.model,
@@ -411,7 +413,7 @@ def new_lr(
     if anneal_lr == "none":
         lr = learning_rate
     elif anneal_lr == "linear":
-        lr = learning_rate * min(lr_min_factor, 1 - cur_epoch / total_epochs)
+        lr = learning_rate * max(lr_min_factor, 1 - cur_epoch / total_epochs)
     elif anneal_lr == "cosine":
         eta_min = lr * lr_decay_rate ** 3
         lr = eta_min + (lr - eta_min) * (
