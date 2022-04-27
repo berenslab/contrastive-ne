@@ -395,7 +395,7 @@ class ContrastiveLoss(torch.nn.Module):
         else:
             raise ValueError(f"Unknown loss_mode “{self.loss_mode}”")
 
-        return loss.sum()
+        return loss.mean()
 
 
 def new_lr(
