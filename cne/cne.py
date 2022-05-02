@@ -33,7 +33,7 @@ def train(train_loader,
         features = model(images)
         if print_now:
             features.retain_grad() # to print model agnostic grad statistics
-        loss = criterion(features, log_Z)
+        loss = criterion(features, log_Z, force_resample=idx == 0)
 
         # update metric
         # losses.update(loss.item(), bsz)
