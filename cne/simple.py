@@ -80,7 +80,7 @@ class FastTensorDataLoader:
     TensorDataset + DataLoader because dataloader grabs individual indices of
     the dataset and calls cat (slow).
     """
-    def __init__(self, neighbor_mat, batch_size=32, shuffle=False, on_gpu=False, drop_last=False):
+    def __init__(self, neighbor_mat, batch_size=32, shuffle=False, on_gpu=False, drop_last=False, seed=0):
         """
         Initialize a FastTensorDataLoader.
 
@@ -106,6 +106,8 @@ class FastTensorDataLoader:
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.drop_last = drop_last
+        self.seed = seed
+        torch.manual_seed(self.seed)
 
         # Calculate # batches
         n_batches, remainder = divmod(self.dataset_len, self.batch_size)
@@ -161,7 +163,7 @@ class FCNetwork(torch.nn.Module):
 
 
 class CNE(object):
-    def __init__(self, model=None, k=15, parametric=True, num_workers=0, on_gpu=True, **kwargs):
+    def __init__(self, model=None, k=15, parametric=True, num_workers=0, on_gpu=True, seed=0, **kwargs):
         self.model = model
         self.k = k
         self.parametric = parametric
@@ -169,6 +171,7 @@ class CNE(object):
         self.on_gpu = on_gpu
         # self.batch_size = batch_size
         self.kwargs = kwargs
+        self.seed = seed
 
 
     def fit_transform(self, X, init=None, graph=None):
@@ -272,6 +275,7 @@ class CNE(object):
         self.dataloader = FastTensorDataLoader(self.neighbor_mat,
                                                shuffle=True,
                                                batch_size=self.cne.batch_size,
-                                               on_gpu=self.on_gpu)
+                                               on_gpu=self.on_gpu,
+                                               seed=self.seed)
         self.cne.fit(self.dataloader, len(X))
         return self

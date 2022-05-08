@@ -83,6 +83,7 @@ class ContrastiveEmbedding(object):
             Z_bar=None,
             eps=1.0,
             clamp_low=1e-4,
+            Z=1.0,
             loss_mode="umap",
             metric="euclidean",
             optimizer="adam",
@@ -95,6 +96,7 @@ class ContrastiveEmbedding(object):
             callback=None,
             print_freq_epoch=None,
             print_freq_in_epoch=None,
+            seed=0
     ):
         self.model: torch.nn.Module = model
         self.batch_size: int = batch_size
@@ -119,11 +121,12 @@ class ContrastiveEmbedding(object):
         self.callback = callback
         self.print_freq_epoch = print_freq_epoch
         self.print_freq_in_epoch = print_freq_in_epoch
-        self.log_Z = None
         self.eps = eps
         self.clamp_low = clamp_low
+        self.seed=seed
+        self.log_Z = torch.tensor(np.log(Z), device=self.device)
         if self.loss_mode == "nce":
-            self.log_Z = torch.nn.Parameter(torch.tensor(0.0, device=self.device),
+            self.log_Z = torch.nn.Parameter(self.log_Z,
                                             requires_grad=True)
 
         if self.loss_mode == "neg_sample":
@@ -152,7 +155,8 @@ class ContrastiveEmbedding(object):
             loss_mode=self.loss_mode,
             noise_in_estimator=torch.tensor(self.noise_in_estimator).to(self.device),
             eps=torch.tensor(self.eps).to(self.device),
-            clamp_low=self.clamp_low
+            clamp_low=self.clamp_low,
+            seed=self.seed
         )
 
         params = [{"params": self.model.parameters()}]
@@ -264,7 +268,8 @@ class ContrastiveLoss(torch.nn.Module):
                  base_temperature=1,
                  eps=1.0,
                  noise_in_estimator=1.0,
-                 clamp_low=1e-4):
+                 clamp_low=1e-4,
+                 seed=0):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
         self.temperature = temperature
@@ -274,6 +279,8 @@ class ContrastiveLoss(torch.nn.Module):
         self.noise_in_estimator = noise_in_estimator
         self.eps = eps
         self.clamp_low = clamp_low
+        self.seed = seed
+        torch.manual_seed(self.seed)
 
     def forward(self, features, log_Z=None):
         """Compute loss for model. SimCLR unsupervised loss:
