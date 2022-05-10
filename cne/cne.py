@@ -322,9 +322,7 @@ class ContrastiveLoss(torch.nn.Module):
             norm = torch.nn.functional.normalize
             o = norm(origs).unsqueeze(1)
             n = norm(neighbors).transpose(1, 2)
-            logits = (
-                torch.bmm(o, n).squeeze() - 1
-            ) / self.temperature
+            logits = torch.bmm(o, n).squeeze() / self.temperature
             # logits_max, _ = logits.max(dim=1, keepdim=True)
             # logits -= logits_max.detach()
             # logits -= logits.max().detach()
