@@ -5,10 +5,10 @@ from .cne import ContrastiveEmbedding
 from annoy import AnnoyIndex
 from scipy.sparse import lil_matrix
 from sklearn.decomposition import PCA
+import time
 
 class NeighborTransformData(torch.utils.data.Dataset):
     """Returns a pair of neighboring points in the dataset."""
-
     def __init__(
             self, dataset, neighbor_mat, random_state=None
     ):
@@ -30,7 +30,6 @@ class NeighborTransformData(torch.utils.data.Dataset):
 
 class NeighborTransformIndices(torch.utils.data.Dataset):
     """Returns a pair of indices of neighboring points in the dataset."""
-
     def __init__(
             self, neighbor_mat, random_state=None
     ):
@@ -73,7 +72,7 @@ class NumpyToIndicesDataset(torch.utils.data.Dataset):
         return i
 
 
-# from https://discuss.pytorch.org/t/dataloader-much-slower-than-manual-batching/27014/6
+# based on https://discuss.pytorch.org/t/dataloader-much-slower-than-manual-batching/27014/6
 class FastTensorDataLoader:
     """
     A DataLoader-like object for a set of tensors that can be much faster than
@@ -88,6 +87,9 @@ class FastTensorDataLoader:
         :param batch_size: batch size to load.
         :param shuffle: if True, shuffle the data *in-place* whenever an
             iterator is created out of this object.
+        :param on_gpu: If True, the dataset is loaded on GPU as a whole.
+        :param drop_last: Drop the last batch if it is smaller than the others.
+        :param seed: Random seed
 
         :returns: A FastTensorDataLoader.
         """
@@ -96,6 +98,8 @@ class FastTensorDataLoader:
         tensors = [torch.tensor(neighbor_mat.row),
                    torch.tensor(neighbor_mat.col)]
         assert all(t.shape[0] == tensors[0].shape[0] for t in tensors)
+
+        # manage device
         self.device = "cpu"
         if on_gpu:
             self.device="cuda"
@@ -109,7 +113,7 @@ class FastTensorDataLoader:
         self.seed = seed
         torch.manual_seed(self.seed)
 
-        # Calculate # batches
+        # Calculate number of  batches
         n_batches, remainder = divmod(self.dataset_len, self.batch_size)
         if remainder > 0 and not self.drop_last:
             n_batches += 1
@@ -142,7 +146,6 @@ class FastTensorDataLoader:
 
 class FCNetwork(torch.nn.Module):
     "Fully-connected network"
-
     def __init__(self, in_dim=784, feat_dim=2):
         super(FCNetwork, self).__init__()
         self.flatten = torch.nn.Flatten()
@@ -163,22 +166,33 @@ class FCNetwork(torch.nn.Module):
 
 
 class CNE(object):
-    def __init__(self, model=None, k=15, parametric=True, num_workers=0, on_gpu=True, seed=0, **kwargs):
+    """
+    Manages contrastive neighbor embeddings.
+    """
+    def __init__(self, model=None, k=15, parametric=True, on_gpu=True, seed=0, **kwargs):
+        """
+        :param model: Embedding model
+        :param k: int Number of nearest neighbors
+        :param parametric: bool If True and model=None uses a parametric embedding model
+        :param on_gpu: bool Load whole dataset to GPU
+        :param seed: int Random seed
+        :param kwargs:
+        """
         self.model = model
         self.k = k
         self.parametric = parametric
-        self.num_workers = num_workers
         self.on_gpu = on_gpu
-        # self.batch_size = batch_size
         self.kwargs = kwargs
         self.seed = seed
 
 
     def fit_transform(self, X, init=None, graph=None):
+        "Fit the model, then transform."
         self.fit(X, init=init, graph=graph)
         return self.transform(X)
 
     def transform(self, X):
+        "Transform a dataset using the fitted model."
         if self.parametric:
             X = X.reshape(X.shape[0], -1)
             self.dataset_plain = NumpyToTensorDataset(X)
@@ -199,8 +213,12 @@ class CNE(object):
         return embd
 
     def fit(self, X, init=None, graph=None):
+        "Fit the model."
+        start_time = time.time()
         X = X.reshape(X.shape[0], -1)
         in_dim = X.shape[1]
+
+        # set up model if not given
         if self.model is None:
             if self.parametric:
                 self.embd_layer = torch.nn.Embedding.from_pretrained(torch.tensor(X),
@@ -229,9 +247,11 @@ class CNE(object):
         if "learning_rate" not in self.kwargs.keys():
             lr = 0.001 if self.parametric else 1.0
             self.kwargs["learning_rate"] = lr
-        self.cne = ContrastiveEmbedding(self.model, **self.kwargs)
 
+        # Load embedding engine
+        self.cne = ContrastiveEmbedding(self.model, seed=self.seed, **self.kwargs)
 
+        # compute the similarity graph with annoy if none is given
         if graph is None:
             # create approximate NN search tree
             self.annoy = AnnoyIndex(in_dim, "euclidean")
@@ -243,8 +263,6 @@ class CNE(object):
             for i in range(X.shape[0]):
                 neighs_, dists_ = self.annoy.get_nns_by_item(i, self.k + 1, include_distances=True)
                 neighs = neighs_[1:]
-                dists = dists_[1:]
-
                 adj[i, neighs] = 1
                 adj[neighs, i] = 1  # symmetrize on the fly
 
@@ -252,30 +270,15 @@ class CNE(object):
         else:
             self.neighbor_mat = graph.tocsr()
 
-
-        if 0:
-            data_seed = 33
-            self.dataset = NeighborTransformData(X, self.neighbor_mat,
-                                                 data_seed)
-
-            # old non parametric version used:
-            # self.dataset = NeighborTransformIndices(self.neighbor_mat)
-
-            seed = 6267340091634178711
-            gen = torch.Generator().manual_seed(seed)
-            self.dataloader = torch.utils.data.DataLoader(
-                self.dataset,
-                shuffle=True,
-                batch_size=self.cne.batch_size,
-                generator=gen,
-                num_workers=self.num_workers,
-                pin_memory=True,
-                persistent_workers=True
-            )
+        # create data loader
         self.dataloader = FastTensorDataLoader(self.neighbor_mat,
                                                shuffle=True,
                                                batch_size=self.cne.batch_size,
                                                on_gpu=self.on_gpu,
                                                seed=self.seed)
+
+        # fit the model
         self.cne.fit(self.dataloader, len(X))
+        end_time = time.time()
+        self.cne.time = end_time - start_time
         return self
