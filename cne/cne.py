@@ -12,7 +12,8 @@ def train(train_loader,
           optimizer,
           epoch,
           clip_grad=True,
-          print_freq=None):
+          print_freq=None,
+          force_resample=None):
     """one epoch training"""
     model.train()
     losses = []
@@ -33,7 +34,8 @@ def train(train_loader,
         features = model(images)
         if print_now:
             features.retain_grad() # to print model agnostic grad statistics
-        loss = criterion(features, log_Z, force_resample=idx == 0)
+        force_resample = force_resample if force_resample is not None else idx == 0
+        loss = criterion(features, log_Z, force_resample=force_resample)
 
         # update metric
         # losses.update(loss.item(), bsz)
@@ -96,7 +98,9 @@ class ContrastiveEmbedding(object):
             callback=None,
             print_freq_epoch=None,
             print_freq_in_epoch=None,
-            seed=0
+            seed=0,
+            loss_aggregation="mean",
+            force_resample=None
     ):
         self.model: torch.nn.Module = model
         self.batch_size: int = batch_size
@@ -124,6 +128,8 @@ class ContrastiveEmbedding(object):
         self.eps = eps
         self.clamp_low = clamp_low
         self.seed=seed
+        self.loss_aggregation = loss_aggregation
+        self.force_resample = force_resample
         self.log_Z = torch.tensor(np.log(Z), device=self.device)
         if self.loss_mode == "nce":
             self.log_Z = torch.nn.Parameter(self.log_Z,
@@ -156,7 +162,8 @@ class ContrastiveEmbedding(object):
             noise_in_estimator=torch.tensor(self.noise_in_estimator).to(self.device),
             eps=torch.tensor(self.eps).to(self.device),
             clamp_low=self.clamp_low,
-            seed=self.seed
+            seed=self.seed,
+            loss_aggregation=self.loss_aggregation
         )
 
         params = [{"params": self.model.parameters()}]
@@ -214,9 +221,7 @@ class ContrastiveEmbedding(object):
                 total_epochs=self.n_epochs,
                 decay_epochs=self.lr_decay_epochs,
             )
-            # this will override the different learning rate for Z in NCE!!
-            #for param_group in optimizer.param_groups:
-            #    param_group['lr'] = lr
+
             # just change the lr of the first param group, not that of Z
             optimizer.param_groups[0]["lr"] = lr
 
@@ -227,7 +232,8 @@ class ContrastiveEmbedding(object):
                        optimizer,
                        epoch,
                        clip_grad=self.clip_grad,
-                       print_freq=self.print_freq_in_epoch)
+                       print_freq=self.print_freq_in_epoch,
+                       force_resample=self.force_resample)
             batch_losses.append(bl)
 
             if (
@@ -269,7 +275,8 @@ class ContrastiveLoss(torch.nn.Module):
                  eps=1.0,
                  noise_in_estimator=1.0,
                  clamp_low=1e-4,
-                 seed=0):
+                 seed=0,
+                 loss_aggregation="mean"):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
         self.temperature = temperature
@@ -282,6 +289,7 @@ class ContrastiveLoss(torch.nn.Module):
         self.seed = seed
         torch.manual_seed(self.seed)
         self.neigh_inds = None
+        self.loss_aggregation = loss_aggregation
 
     def forward(self, features, log_Z=None, force_resample=False):
         """Compute loss for model. SimCLR unsupervised loss:
@@ -387,7 +395,12 @@ class ContrastiveLoss(torch.nn.Module):
         else:
             raise ValueError(f"Unknown loss_mode “{self.loss_mode}”")
 
-        return loss.mean()
+        if self.loss_aggregation == "sum":
+            loss = loss.sum()
+        else:
+            loss = loss.mean()
+
+        return loss
 
 
 def new_lr(
