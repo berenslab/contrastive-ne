@@ -33,7 +33,7 @@ def train(train_loader,
         features = model(images)
         if print_now:
             features.retain_grad() # to print model agnostic grad statistics
-        loss = criterion(features, log_Z)
+        loss = criterion(features, log_Z, force_resample=idx == 0)
 
         # update metric
         # losses.update(loss.item(), bsz)
@@ -281,14 +281,16 @@ class ContrastiveLoss(torch.nn.Module):
         self.clamp_low = clamp_low
         self.seed = seed
         torch.manual_seed(self.seed)
+        self.neigh_inds = None
 
-    def forward(self, features, log_Z=None):
+    def forward(self, features, log_Z=None, force_resample=False):
         """Compute loss for model. SimCLR unsupervised loss:
         https://arxiv.org/pdf/2002.05709.pdf
 
         Args:
             features: hidden vector of shape [2 * bsz, n_views, ...].
             log_Z: scalar, logarithm of the learnt normalization constant for nce.
+            force_resample: Whether the negative samples should be forcefully resampled.
         Returns:
             A loss scalar.
         """
@@ -300,33 +302,15 @@ class ContrastiveLoss(torch.nn.Module):
         # `b` can be lower than `self.negative_samples` in the last batch.
         negative_samples = min(self.negative_samples, 2 * b - 1)
 
-        if negative_samples < 2 * b - 1:
-            # uniform probability for all points in the minibatch,
-            # we sample points for repulsion randomly
-            neg_inds = torch.randint(0, 2 * b - 1, (b, negative_samples),
-                                     device=features.device)
-            neg_inds += (torch.arange(
-                1, b + 1, device=features.device
-            ) - 2 * b)[:, None]
+        if force_resample or self.neigh_inds is None:
+            neigh_inds = make_neighbor_indices(batch_size, negative_samples)
+            self.neigh_inds = neigh_inds
+        # # untested logic to accomodate for last batch
+        # elif self.neigh_inds.shape[0] != batch_size:
+        #     neigh_inds = make_neighbor_indices(batch_size, negative_samples)
+        #     # don't save this one
         else:
-            # full batch repulsion
-            all_inds1 = torch.repeat_interleave(
-                torch.arange(b, device=features.device)[None, :], b, dim=0
-            )
-            not_self = ~torch.eye(b, dtype=bool, device=features.device)
-            neg_inds1 = all_inds1[not_self].reshape(b, b - 1)
-
-            all_inds2 = torch.repeat_interleave(
-                torch.arange(b, 2 * b, device=features.device)[None, :], b, dim=0
-            )
-            neg_inds2 = all_inds2[not_self].reshape(b, b - 1)
-            neg_inds = torch.hstack((neg_inds1, neg_inds2))
-
-        # now add transformed explicitly
-        neigh_inds = torch.hstack((torch.arange(b,
-                                                2*b,
-                                                device=features.device)[:, None],
-                                   neg_inds))
+            neigh_inds = self.neigh_inds
         neighbors = features[neigh_inds]
 
         # `neigh_mask` indicates which samples feel attractive force
@@ -348,9 +332,7 @@ class ContrastiveLoss(torch.nn.Module):
             norm = torch.nn.functional.normalize
             o = norm(origs).unsqueeze(1)
             n = norm(neighbors).transpose(1, 2)
-            logits = (
-                torch.bmm(o, n).squeeze() - 1
-            ) / self.temperature
+            logits = torch.bmm(o, n).squeeze() / self.temperature
             # logits_max, _ = logits.max(dim=1, keepdim=True)
             # logits -= logits_max.detach()
             # logits -= logits.max().detach()
@@ -405,7 +387,7 @@ class ContrastiveLoss(torch.nn.Module):
         else:
             raise ValueError(f"Unknown loss_mode “{self.loss_mode}”")
 
-        return loss.sum()
+        return loss.mean()
 
 
 def new_lr(
@@ -429,3 +411,37 @@ def new_lr(
         raise RuntimeError(f"Unknown learning rate annealing “{anneal_lr = }”")
 
     return lr
+
+
+def make_neighbor_indices(batch_size, negative_samples, device=None):
+    b = batch_size
+
+    if negative_samples < 2 * b - 1:
+        # uniform probability for all points in the minibatch,
+        # we sample points for repulsion randomly
+        neg_inds = torch.randint(0, 2 * b - 1, (b, negative_samples),
+                                 device=device)
+        neg_inds += (torch.arange(
+            1, b + 1, device=device
+        ) - 2 * b)[:, None]
+    else:
+        # full batch repulsion
+        all_inds1 = torch.repeat_interleave(
+            torch.arange(b, device=device)[None, :], b, dim=0
+        )
+        not_self = ~torch.eye(b, dtype=bool, device=device)
+        neg_inds1 = all_inds1[not_self].reshape(b, b - 1)
+
+        all_inds2 = torch.repeat_interleave(
+            torch.arange(b, 2 * b, device=device)[None, :], b, dim=0
+        )
+        neg_inds2 = all_inds2[not_self].reshape(b, b - 1)
+        neg_inds = torch.hstack((neg_inds1, neg_inds2))
+
+    # now add transformed explicitly
+    neigh_inds = torch.hstack((torch.arange(b,
+                                            2*b,
+                                            device=device)[:, None],
+                               neg_inds))
+
+    return neigh_inds
