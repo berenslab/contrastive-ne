@@ -107,7 +107,9 @@ class ContrastiveEmbedding(object):
             print_freq_in_epoch=None,
             seed=0,
             loss_aggregation="mean",
-            force_resample=None
+            force_resample=None,
+            warmup_epochs=0,
+            warmup_lr=0
     ):
         """
         :param model: torch.nn.Module Embedding model (embedding layer for non-parametric, neural network for parametric)
@@ -139,6 +141,8 @@ class ContrastiveEmbedding(object):
         :param seed: int Random seed
         :param loss_aggregation: str Specifies how to aggregate loss over a batch. Must be "sum" or "mean".
         :param force_resample: bool or None If True, negative sample indices are resampled every batch. If None, they are resampled every epoch.
+        :param warmup_epochs: int Number of epochs for linearly warming up the learning rate
+        :param warmup_lr: float Starting learning rate to warm up from.
         """
         self.model: torch.nn.Module = model
         self.batch_size: int = batch_size
@@ -168,6 +172,10 @@ class ContrastiveEmbedding(object):
         self.seed=seed
         self.loss_aggregation = loss_aggregation
         self.force_resample = force_resample
+        self.warmup_epochs = warmup_epochs
+        self.warmup_lr = warmup_lr
+
+
         self.log_Z = torch.tensor(np.log(Z), device=self.device)
         if self.loss_mode == "nce":
             self.log_Z = torch.nn.Parameter(self.log_Z,
@@ -271,6 +279,8 @@ class ContrastiveEmbedding(object):
                 cur_epoch=epoch,
                 total_epochs=self.n_epochs,
                 decay_epochs=self.lr_decay_epochs,
+                warmup_lr=self.warmup_lr,
+                warmup_epochs=self.warmup_epochs
             )
 
             # just change the lr of the first param group, not that of Z
@@ -470,28 +480,36 @@ def new_lr(
         cur_epoch,
         total_epochs,
         decay_epochs=None,      # unused for now
+        warmup_epochs=0,
+        warmup_lr=0.0
 ):
     """
     Decays the learning rate
     :param learning_rate: float Current learning rate
-    :param anneal_lr: bool If True, anneal learning rate
+    :param anneal_lr: str Specifies the learning rate annealing. Must be one of "none", "linear" or "cosine"
     :param lr_decay_rate: float Rate of cosine decay.
     :param lr_min_factor: float Minimal learning rate of linear decay.
     :param cur_epoch: int Current epoch
     :param total_epochs: int Total number of epochs
     :param decay_epochs: int Number of decay epochs (unused)
+    :param warmup_epochs: int Number of epochs for linearly warming up the learning rate
+    :param warmup_lr: float Starting learning rate to warm up from.
     :return: float New learning rate
     """
-    if anneal_lr == "none":
-        lr = learning_rate
-    elif anneal_lr == "linear":
-        lr = learning_rate * max(lr_min_factor, 1 - cur_epoch / total_epochs)
-    elif anneal_lr == "cosine":
-        eta_min = learning_rate * lr_decay_rate ** 3
-        lr = eta_min + (learning_rate - eta_min) * (
-            1 + np.cos(np.pi * cur_epoch / total_epochs)) / 2
+
+    if cur_epoch < warmup_epochs:
+        lr = warmup_lr + (learning_rate - warmup_lr) * cur_epoch / warmup_epochs
     else:
-        raise RuntimeError(f"Unknown learning rate annealing “{anneal_lr = }”")
+        if anneal_lr == "none":
+            lr = learning_rate
+        elif anneal_lr == "linear":
+            lr = learning_rate * max(lr_min_factor, 1 - cur_epoch / total_epochs)
+        elif anneal_lr == "cosine":
+            eta_min = learning_rate * lr_decay_rate ** 3
+            lr = eta_min + (learning_rate - eta_min) * (
+                1 + np.cos(np.pi * cur_epoch / total_epochs)) / 2
+        else:
+            raise RuntimeError(f"Unknown learning rate annealing “{anneal_lr = }”")
 
     return lr
 
