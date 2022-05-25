@@ -51,50 +51,56 @@ def train(train_loader,
 
         # print info
         if print_now:
-            print(f'Train: E{epoch}, {idx}/{len(train_loader)}\t'
-                  #f'grad magn {model.linear_relu_stack[-1].weight.grad.abs().sum()}, '
-                  # print grad on features to be model agnostic
-                  f'grad magn {features.grad.abs().sum():.3f}, '
-                  f'loss {sum(losses) / len(losses):.3f}, '
-                  f'time/iteration {time.time() - start:.3f}',
-                  file=sys.stderr)
+            print(
+                f"Train: E{epoch}, {idx}/{len(train_loader)}\t"
+                # f'grad magn {model.linear_relu_stack[-1].weight.grad.abs().sum()}, '
+                # print grad on features to be model agnostic
+                f"grad magn {features.grad.abs().sum():.3f}, "
+                f"loss {sum(losses) / len(losses):.3f}, "
+                f"time/iteration {time.time() - start:.3f}",
+                file=sys.stderr,
+            )
             if torch.isnan(features).any() or torch.isnan(loss).any():
-                print(f"NaN error! feat% {torch.isnan(features).sum() / (features.shape[0] * features.shape[1]):.3f}, "
-                      f"loss% {torch.isnan(loss).sum():.3f}", file=sys.stderr)
+                print(
+                    f"NaN error! feat% {torch.isnan(features).sum() / (features.shape[0] * features.shape[1]):.3f}, "
+                    f"loss% {torch.isnan(loss).sum():.3f}",
+                    file=sys.stderr,
+                )
                 exit(3)
 
     return losses
 
 
 class ContrastiveEmbedding(object):
-
     def __init__(
-            self,
-            model: torch.nn.Module,
-            batch_size=32,
-            negative_samples=5,
-            n_epochs=50,
-            device="cuda:0",
-            learning_rate=0.001,
-            lr_min_factor=0.1,
-            momentum=0.9,
-            temperature=0.5,
-            noise_in_estimator=1.,
-            Z_bar=None,
-            eps=1.0,
-            clamp_low=1e-4,
-            loss_mode="umap",
-            metric="euclidean",
-            optimizer="adam",
-            weight_decay=0,
-            anneal_lr="none",
-            lr_decay_rate=0.1,
-            lr_decay_epochs=None,  # unused for now
-            clip_grad=True,
-            save_freq=25,
-            callback=None,
-            print_freq_epoch=None,
-            print_freq_in_epoch=None,
+        self,
+        model: torch.nn.Module,
+        batch_size=32,
+        negative_samples=5,
+        n_epochs=50,
+        device="cuda:0",
+        learning_rate=0.001,
+        lr_min_factor=0.1,
+        momentum=0.9,
+        temperature=0.5,
+        noise_in_estimator=1.0,
+        Z_bar=None,
+        eps=1.0,
+        clamp_low=1e-4,
+        loss_mode="umap",
+        metric="euclidean",
+        optimizer="adam",
+        weight_decay=0,
+        anneal_lr="none",
+        lr_decay_rate=0.1,
+        lr_decay_epochs=None,  # unused for now
+        warmup_lr=0,
+        warmup_epochs=3,
+        clip_grad=True,
+        save_freq=25,
+        callback=None,
+        print_freq_epoch=None,
+        print_freq_in_epoch=None,
     ):
         self.model: torch.nn.Module = model
         self.batch_size: int = batch_size
@@ -381,24 +387,33 @@ class ContrastiveLoss(torch.nn.Module):
 
 
 def new_lr(
-        learning_rate,
-        anneal_lr,
-        lr_decay_rate,
-        lr_min_factor,
-        cur_epoch,
-        total_epochs,
-        decay_epochs=None,      # unused for now
+    learning_rate,
+    anneal_lr,
+    lr_decay_rate,
+    lr_min_factor,
+    cur_epoch,
+    total_epochs,
+    decay_epochs=None,  # unused for now
+    warmup_lr=0,
+    warmup_epochs=0,
 ):
-    if anneal_lr == "none":
-        lr = learning_rate
-    elif anneal_lr == "linear":
-        lr = learning_rate * min(lr_min_factor, 1 - cur_epoch / total_epochs)
-    elif anneal_lr == "cosine":
-        eta_min = learning_rate * lr_decay_rate ** 3
-        lr = eta_min + (learning_rate - eta_min) * (
-            1 + np.cos(np.pi * cur_epoch / total_epochs)) / 2
+    if cur_epoch <= warmup_epochs:
+        lr = warmup_lr + (learning_rate - warmup_lr) * cur_epoch / warmup_epochs
     else:
-        raise RuntimeError(f"Unknown learning rate annealing “{anneal_lr = }”")
+        if anneal_lr == "none":
+            lr = learning_rate
+        elif anneal_lr == "linear":
+            lr = learning_rate * min(lr_min_factor, 1 - cur_epoch / total_epochs)
+        elif anneal_lr == "cosine":
+            eta_min = learning_rate * lr_decay_rate**3
+            lr = (
+                eta_min
+                + (learning_rate - eta_min)
+                * (1 + np.cos(np.pi * cur_epoch / total_epochs))
+                / 2
+            )
+        else:
+            raise RuntimeError(f"Unknown learning rate annealing “{anneal_lr = }”")
 
     return lr
 
