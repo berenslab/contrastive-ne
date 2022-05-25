@@ -7,6 +7,7 @@ from scipy.sparse import lil_matrix
 from sklearn.decomposition import PCA
 import time
 
+# various datasets / dataloaders
 class NeighborTransformData(torch.utils.data.Dataset):
     """Returns a pair of neighboring points in the dataset."""
     def __init__(
