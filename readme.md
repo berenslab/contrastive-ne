@@ -1,7 +1,7 @@
 # Contrastive Neighbor Embedding Methods
 
-This repo contains code that can create a (non-) parametric embedding suitable for data
-visualization with various constrastive losses.
+This repo contains code to create a (non-) parametric embedding suitable for data
+visualization with various contrastive losses.
 
 # Installation
 
@@ -12,15 +12,15 @@ cd contrastive-ne
 pip install .
 ```
 
-This should install all dependecies and allow the code to be run.
-Note that pytorch with GPU support can be a bit pesky to install as a
+This installs all dependecies and allows the code to be run.
+Note that pytorch with GPU support can be a bit tricky to install as a
 dependency, so if it is not installed already, it might make
 sense to consult the [pytorch website](https://pytorch.org) to install
 it with CUDA support.
 
 # Example
 
-The most basic use is via `CNE`.  You can create embeddings as follows:
+The most basic use is via `CNE`. You can create embeddings as follows:
 
 ```python
 import cne
@@ -70,7 +70,7 @@ plt.axis("off")
 plt.title("Parametric NCVis of MNIST")
 plt.show()
 ```
-<img width="500" alt="Parametric NCVis plot" src="/figures/parametric_ncvis_mnist.png">
+<img width="400" alt="Parametric NCVis plot" src="/figures/parametric_ncvis_mnist.png">
 
 ```python
 plt.figure()
@@ -80,7 +80,7 @@ plt.axis("off")
 plt.title(r"Neg-$t$-SNE of MNIST")
 plt.show()
 ```
-<img width="500" alt="Neg-t-SNE plot" src="/figures/negtsne_mnist.png">
+<img width="400" alt="Neg-t-SNE plot" src="/figures/negtsne_mnist.png">
 
 ## Technical detail
 
