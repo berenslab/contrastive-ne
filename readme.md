@@ -14,7 +14,7 @@ pip install .
 
 This should install all dependecies and allow the code to be run.
 Note that pytorch with GPU support can be a bit pesky to install as a
-dependency, so if it's not installed already anyways it might make
+dependency, so if it is not installed already, it might make
 sense to consult the [pytorch website](https://pytorch.org) to install
 it with CUDA support.
 
@@ -49,7 +49,6 @@ embedder_ncvis = cne.CNE(loss_mode="nce",
                          parametric=True,
                          anneal_lr=True,
                          loss_aggregation="sum",
-                         batch_size=1024,
                          print_freq_epoch=10)
 embd_ncvis = embedder_ncvis.fit_transform(x)
 
@@ -60,7 +59,6 @@ embedder_neg = cne.CNE(loss_mode="neg_sample",
                        parametric=False,
                        anneal_lr=True,
                        loss_aggregation="sum",
-                       batch_size=1024,
                        print_freq_epoch=10)
 embd_neg = embedder_neg.fit_transform(x)
 
@@ -83,10 +81,6 @@ plt.title(r"Neg-$t$-SNE of MNIST")
 plt.show()
 ```
 ![Neg-t-SNE plot](/figures/negtsne_mnist.png "Neg-t-SNE of MNIST")
-
-
-This will create a `n x 2` numpy array (variable `Y`) which can then be
-plotted or further investigated/processed.
 
 ## Technical detail
 

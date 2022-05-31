@@ -80,7 +80,7 @@ class FastTensorDataLoader:
     TensorDataset + DataLoader because dataloader grabs individual indices of
     the dataset and calls cat (slow).
     """
-    def __init__(self, neighbor_mat, batch_size=32, shuffle=False, on_gpu=False, drop_last=False, seed=0):
+    def __init__(self, neighbor_mat, batch_size=1024, shuffle=False, on_gpu=False, drop_last=False, seed=0):
         """
         Initialize a FastTensorDataLoader.
 

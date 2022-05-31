@@ -80,7 +80,7 @@ class ContrastiveEmbedding(object):
     def __init__(
             self,
             model: torch.nn.Module,
-            batch_size=32,
+            batch_size=1024,
             negative_samples=5,
             n_epochs=50,
             device="cuda:0",
