@@ -208,7 +208,7 @@ class CNE(object):
                             .detach().cpu().numpy()
                             for batch in self.dl_unshuf])
         else:
-            embd = self.model.weights.detach().cpu().numpy()
+            embd = self.model.weight.detach().cpu().numpy()
 
 
         return embd
@@ -255,6 +255,7 @@ class CNE(object):
         # compute the similarity graph with annoy if none is given
         if graph is None:
             # create approximate NN search tree
+            print("Computing approximate kNN graph")
             self.annoy = AnnoyIndex(in_dim, "euclidean")
             [self.annoy.add_item(i, x) for i, x in enumerate(X)]
             self.annoy.build(50)
@@ -262,7 +263,7 @@ class CNE(object):
             # construct the adjacency matrix for the graph
             adj = lil_matrix((X.shape[0], X.shape[0]))
             for i in range(X.shape[0]):
-                neighs_, dists_ = self.annoy.get_nns_by_item(i, self.k + 1, include_distances=True)
+                neighs_, _ = self.annoy.get_nns_by_item(i, self.k + 1, include_distances=True)
                 neighs = neighs_[1:]
                 adj[i, neighs] = 1
                 adj[neighs, i] = 1  # symmetrize on the fly
