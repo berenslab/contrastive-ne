@@ -70,7 +70,7 @@ plt.axis("off")
 plt.title("Parametric NCVis of MNIST")
 plt.show()
 ```
-![Parametric NCVis plot](/figures/parametric_ncvis_mnist.png "Parametric NCVis of MNIST")
+<img width="500" alt="Parametric NCVis plot" src="/figures/parametric_ncvis_mnist.png">
 
 ```python
 plt.figure()
@@ -80,7 +80,7 @@ plt.axis("off")
 plt.title(r"Neg-$t$-SNE of MNIST")
 plt.show()
 ```
-![Neg-t-SNE plot](/figures/negtsne_mnist.png "Neg-t-SNE of MNIST")
+<img width="500" alt="Neg-t-SNE plot" src="/figures/negtsne_mnist.png">
 
 ## Technical detail
 
