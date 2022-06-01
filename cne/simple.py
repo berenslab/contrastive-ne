@@ -170,13 +170,23 @@ class CNE(object):
     """
     Manages contrastive neighbor embeddings.
     """
-    def __init__(self, model=None, k=15, parametric=True, on_gpu=True, seed=0, **kwargs):
+    def __init__(self,
+                 model=None,
+                 k=15,
+                 parametric=True,
+                 on_gpu=True,
+                 seed=0,
+                 loss_aggregation="sum",
+                 anneal_lr=True,
+                 **kwargs):
         """
         :param model: Embedding model
         :param k: int Number of nearest neighbors
         :param parametric: bool If True and model=None uses a parametric embedding model
         :param on_gpu: bool Load whole dataset to GPU
         :param seed: int Random seed
+        :param loss_aggregation: str If 'mean' uses mean aggregation of loss over batch, if 'sum' uses sum.
+        :param anneal_lr: bool If True anneal the learning rate linearly.
         :param kwargs:
         """
         self.model = model
@@ -185,6 +195,8 @@ class CNE(object):
         self.on_gpu = on_gpu
         self.kwargs = kwargs
         self.seed = seed
+        self.loss_aggregation = loss_aggregation
+        self.anneal_lr = anneal_lr
 
 
     def fit_transform(self, X, init=None, graph=None):
@@ -250,7 +262,11 @@ class CNE(object):
             self.kwargs["learning_rate"] = lr
 
         # Load embedding engine
-        self.cne = ContrastiveEmbedding(self.model, seed=self.seed, **self.kwargs)
+        self.cne = ContrastiveEmbedding(self.model,
+                                        seed=self.seed,
+                                        loss_aggregation=self.loss_aggregation,
+                                        anneal_lr=self.anneal_lr,
+                                        **self.kwargs)
 
         # compute the similarity graph with annoy if none is given
         if graph is None:

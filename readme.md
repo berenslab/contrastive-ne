@@ -45,20 +45,18 @@ y = np.concatenate([y_train, y_test], axis=0)
 
 # parametric NCVis 
 embedder_ncvis = cne.CNE(loss_mode="nce",
+                         k=15,
                          optimizer="adam",
                          parametric=True,
-                         anneal_lr=True,
-                         loss_aggregation="sum",
                          print_freq_epoch=10)
 embd_ncvis = embedder_ncvis.fit_transform(x)
 
 # non-parametric Neg-t-SNE
 embedder_neg = cne.CNE(loss_mode="neg_sample",
+                       k=15,
                        optimizer="sgd",
                        momentum=0.0,
                        parametric=False,
-                       anneal_lr=True,
-                       loss_aggregation="sum",
                        print_freq_epoch=10)
 embd_neg = embedder_neg.fit_transform(x)
 
