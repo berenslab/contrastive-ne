@@ -86,7 +86,7 @@ class ContrastiveEmbedding(object):
         noise_in_estimator=1.0,
         Z_bar=None,
         eps=1.0,
-        clamp_low=1e-4,
+        clamp_low=0,
         loss_mode="umap",
         metric="euclidean",
         optimizer="adam",
@@ -120,6 +120,8 @@ class ContrastiveEmbedding(object):
         self.lr_min_factor: float = lr_min_factor
         self.lr_decay_rate = lr_decay_rate
         self.lr_decay_epochs = lr_decay_epochs
+        self.warmup_lr = warmup_lr
+        self.warmup_epochs = warmup_epochs
         self.clip_grad: bool = clip_grad
         self.save_freq: int = save_freq
         self.callback = callback
@@ -215,6 +217,8 @@ class ContrastiveEmbedding(object):
                 cur_epoch=epoch,
                 total_epochs=self.n_epochs,
                 decay_epochs=self.lr_decay_epochs,
+                warmup_epochs=self.warmup_epochs,
+                warmup_lr=self.warmup_lr,
             )
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
@@ -299,7 +303,9 @@ class ContrastiveLoss(torch.nn.Module):
         negative_samples = min(self.negative_samples, 2 * b - 1)
 
         if force_resample or self.neigh_inds is None:
-            neigh_inds = make_neighbor_indices(batch_size, negative_samples)
+            neigh_inds = make_neighbor_indices(
+                batch_size, negative_samples, device=features.device
+            )
             self.neigh_inds = neigh_inds
         # # untested logic to accomodate for last batch
         # elif self.neigh_inds.shape[0] != batch_size:
@@ -397,19 +403,21 @@ def new_lr(
     warmup_lr=0,
     warmup_epochs=0,
 ):
-    if cur_epoch <= warmup_epochs:
+    anneal_epochs = total_epochs - warmup_epochs
+    if cur_epoch < warmup_epochs:
         lr = warmup_lr + (learning_rate - warmup_lr) * cur_epoch / warmup_epochs
     else:
+        cur_epoch = cur_epoch - warmup_epochs
         if anneal_lr == "none":
             lr = learning_rate
         elif anneal_lr == "linear":
-            lr = learning_rate * min(lr_min_factor, 1 - cur_epoch / total_epochs)
+            lr = learning_rate * min(lr_min_factor, 1 - cur_epoch / anneal_epochs)
         elif anneal_lr == "cosine":
-            eta_min = learning_rate * lr_decay_rate**3
+            eta_min = 0
             lr = (
                 eta_min
                 + (learning_rate - eta_min)
-                * (1 + np.cos(np.pi * cur_epoch / total_epochs))
+                * (1 + np.cos(np.pi * cur_epoch / anneal_epochs))
                 / 2
             )
         else:
