@@ -12,8 +12,21 @@ def train(train_loader,
           optimizer,
           epoch,
           clip_grad=True,
-          print_freq=None):
-    """one epoch training"""
+          print_freq=None,
+          force_resample=None):
+    """
+    one epoch training
+    :param train_loader: DataLoader Returns batches of similar tuples
+    :param model: torch.nn.Module Embedding layer (non-parametric) or neural network (parametric)
+    :param log_Z: torch.tensor Float containing the logarithm of the learnable Z
+    :param criterion: torch.nn.Module Computes the loss
+    :param optimizer:  torch.optim.Optimizer
+    :param epoch: int Current training epoch
+    :param clip_grad: bool If True, clips gradients to 4
+    :param print_freq: int or None Frequency for printing if not None
+    :param force_resample: bool or None If True, forces resampling of negative sample indices for every batch. If None, once every epoch.
+    :return: torch.tensor Losses for all batches of the epoch
+    """
     model.train()
     losses = []
 
@@ -22,26 +35,21 @@ def train(train_loader,
         start = time.time()
 
         images = torch.cat([item, neigh], dim=0)
-        # labels = torch.cat([labels[0], labels[1]], dim=0)
 
         images = images.to(next(model.parameters()).device)
-        #if torch.cuda.is_available():
-        #    images = images.cuda(non_blocking=True)
-        #    # labels = labels.cuda(non_blocking=True)
 
         # compute loss
         features = model(images)
         if print_now:
             features.retain_grad() # to print model agnostic grad statistics
-        loss = criterion(features, log_Z, force_resample=idx == 0)
+        force_resample = force_resample if force_resample is not None else idx == 0
+        loss = criterion(features, log_Z, force_resample=force_resample)
 
         # update metric
-        # losses.update(loss.item(), bsz)
         losses.append(loss.item())
 
-        # SGD
+        # Update parameters
         optimizer.zero_grad()
-        # print(torch.isnan(features).any(), torch.isnan(loss).any(), file=sys.stderr)
         loss.backward()
         if clip_grad:
             torch.nn.utils.clip_grad_value_(model.parameters(), 4)
@@ -51,15 +59,12 @@ def train(train_loader,
 
         # print info
         if print_now:
-            print(
-                f"Train: E{epoch}, {idx}/{len(train_loader)}\t"
-                # f'grad magn {model.linear_relu_stack[-1].weight.grad.abs().sum()}, '
-                # print grad on features to be model agnostic
-                f"grad magn {features.grad.abs().sum():.3f}, "
-                f"loss {sum(losses) / len(losses):.3f}, "
-                f"time/iteration {time.time() - start:.3f}",
-                file=sys.stderr,
-            )
+            print(f'Train: E{epoch}, {idx}/{len(train_loader)}\t'
+                  # print grad on features to be model agnostic
+                  f'grad magn {features.grad.abs().sum():.3f}, '
+                  f'loss {sum(losses) / len(losses):.3f}, '
+                  f'time/iteration {time.time() - start:.3f}',
+                  file=sys.stderr)
             if torch.isnan(features).any() or torch.isnan(loss).any():
                 print(
                     f"NaN error! feat% {torch.isnan(features).sum() / (features.shape[0] * features.shape[1]):.3f}, "
@@ -72,36 +77,76 @@ def train(train_loader,
 
 
 class ContrastiveEmbedding(object):
+    """
+    Class for computing contrastive embeddings from similarity information.
+    """
     def __init__(
-        self,
-        model: torch.nn.Module,
-        batch_size=32,
-        negative_samples=5,
-        n_epochs=50,
-        device="cuda:0",
-        learning_rate=0.001,
-        lr_min_factor=0.1,
-        momentum=0.9,
-        temperature=0.5,
-        noise_in_estimator=1.0,
-        Z_bar=None,
-        eps=1.0,
-        clamp_low=0,
-        loss_mode="umap",
-        metric="euclidean",
-        optimizer="adam",
-        weight_decay=0,
-        anneal_lr="none",
-        lr_decay_rate=0.1,
-        lr_decay_epochs=None,  # unused for now
-        warmup_lr=0,
-        warmup_epochs=3,
-        clip_grad=True,
-        save_freq=25,
-        callback=None,
-        print_freq_epoch=None,
-        print_freq_in_epoch=None,
+            self,
+            model: torch.nn.Module,
+            batch_size=1024,
+            negative_samples=5,
+            n_epochs=50,
+            device="cuda:0",
+            learning_rate=0.001,
+            lr_min_factor=0.1,
+            momentum=0.9,
+            temperature=0.5,
+            noise_in_estimator=1.,
+            Z_bar=None,
+            eps=1.0,
+            clamp_low=1e-4,
+            Z=1.0,
+            loss_mode="umap",
+            metric="euclidean",
+            optimizer="adam",
+            weight_decay=0,
+            anneal_lr="none",
+            lr_decay_rate=0.1,
+            lr_decay_epochs=None,  # unused for now
+            clip_grad=True,
+            save_freq=25,
+            callback=None,
+            print_freq_epoch=None,
+            print_freq_in_epoch=None,
+            seed=0,
+            loss_aggregation="mean",
+            force_resample=None,
+            warmup_epochs=0,
+            warmup_lr=0
     ):
+        """
+        :param model: torch.nn.Module Embedding model (embedding layer for non-parametric, neural network for parametric)
+        :param batch_size: int Batch size
+        :param negative_samples: int Number of negative samples per positive sample
+        :param n_epochs: int Number of optimization epochs
+        :param device: torch.device Device of optimization
+        :param learning_rate: float Learning rate
+        :param lr_min_factor: float Minimal value to which learning rate is annealed
+        :param momentum: float Momentum of SGD
+        :param temperature: float Temperature used in Cosine similarity
+        :param noise_in_estimator: float Value used in negative sampling's fraction q / (q+ noise_in_estimator), redundant with Z_bar
+        :param Z_bar: float Fixed normalization constant in negative sampling, redundant with noise_in_estimator
+        :param eps: float Iterpolates between UMAP's implicit similarity (eps = 0) and the Cauchy kernels (eps = 1.0)
+        :param clamp_low: float Lower value at which arguments to logarithms are clamped.
+        :param Z: float Initial value for the learned normalization parameter of NCE
+        :param loss_mode: str Specifies which loss to use. Must be one of "umap", "neg_sample", "nce", "infonce", "infonce_alt"
+        :param metric: str Specifies which metric to use for computing distances. Must be "cosine" or "euclidean".
+        :param optimizer: str Specifies which optimizer to use. Must be "sgd" or "adam"
+        :param weight_decay: float Value of weight decay.
+        :param anneal_lr: bool If True, the learning rate is annealed
+        :param lr_decay_rate: float Parameter for speed of learing rate decay
+        :param lr_decay_epochs: int Number of epochs over which learning rate is decayed
+        :param clip_grad: bool If True, gradients are clipped
+        :param save_freq: int Frequency in epochs of calling callback.
+        :param callback: callable Callback to call before first and every save_freq epochs.
+        :param print_freq_epoch: int Epoch progress is printed every print_freq_epoch epoch
+        :param print_freq_in_epoch: int Losses are printed every print_freq_in_epoch batch per epoch
+        :param seed: int Random seed
+        :param loss_aggregation: str Specifies how to aggregate loss over a batch. Must be "sum" or "mean".
+        :param force_resample: bool or None If True, negative sample indices are resampled every batch. If None, they are resampled every epoch.
+        :param warmup_epochs: int Number of epochs for linearly warming up the learning rate
+        :param warmup_lr: float Starting learning rate to warm up from.
+        """
         self.model: torch.nn.Module = model
         self.batch_size: int = batch_size
         self.negative_samples: int = negative_samples
@@ -127,11 +172,18 @@ class ContrastiveEmbedding(object):
         self.callback = callback
         self.print_freq_epoch = print_freq_epoch
         self.print_freq_in_epoch = print_freq_in_epoch
-        self.log_Z = None
         self.eps = eps
         self.clamp_low = clamp_low
+        self.seed=seed
+        self.loss_aggregation = loss_aggregation
+        self.force_resample = force_resample
+        self.warmup_epochs = warmup_epochs
+        self.warmup_lr = warmup_lr
+
+
+        self.log_Z = torch.tensor(np.log(Z), device=self.device)
         if self.loss_mode == "nce":
-            self.log_Z = torch.nn.Parameter(torch.tensor(0.0),
+            self.log_Z = torch.nn.Parameter(self.log_Z,
                                             requires_grad=True)
 
         if self.loss_mode == "neg_sample":
@@ -143,7 +195,17 @@ class ContrastiveEmbedding(object):
         self.Z_bar = Z_bar
         self.noise_in_estimator = noise_in_estimator
 
+        # move to correct device at init, esp before registering with the optimizer
+        self.model = self.model.to(self.device)
+
     def fit(self, X: torch.utils.data.DataLoader, n: int = None):
+        """
+        Train the model
+        :param X: torch.utils.data.DataLoader Loads pairs of similar objects
+        :param n: int Size of the dataset
+        :return: self
+        """
+        # translate Z_bar into noise_in_estimator
         if self.loss_mode == "neg_sample":
             if self.Z_bar is not None:
                 # if not explicitly passed, use dataset length
@@ -151,15 +213,19 @@ class ContrastiveEmbedding(object):
                 # assume uniform noise distribution over n**2 many edges
                 self.noise_in_estimator = self.negative_samples * self.Z_bar / n**2
 
+        # set up loss
         criterion = ContrastiveLoss(
             negative_samples=self.negative_samples,
             temperature=self.temperature,
             loss_mode=self.loss_mode,
             noise_in_estimator=torch.tensor(self.noise_in_estimator).to(self.device),
             eps=torch.tensor(self.eps).to(self.device),
-            clamp_low=self.clamp_low
+            clamp_low=self.clamp_low,
+            seed=self.seed,
+            loss_aggregation=self.loss_aggregation
         )
 
+        # set up optimizer
         params = [{"params": self.model.parameters()}]
         if self.loss_mode == "nce":
             params +=  [{"params": self.log_Z,
@@ -180,10 +246,6 @@ class ContrastiveEmbedding(object):
             raise ValueError("Only optimizer 'adam' and 'sgd' allowed, "
                              f"but is {self.optimizer}.")
 
-        self.model.to(self.device)
-        if self.loss_mode == "nce":
-            self.log_Z.to(self.device)
-
         # initial callback
         if (
                 self.save_freq is not None
@@ -198,6 +260,8 @@ class ContrastiveEmbedding(object):
                           )
 
         batch_losses = []
+
+        # logging memory usage
         mem_dict = {
             "active_bytes.all.peak": [],
             "allocated_bytes.all.peak": [],
@@ -205,10 +269,13 @@ class ContrastiveEmbedding(object):
             "reserved_bytes.all.allocated": [],
         }
 
+        # training
         for epoch in range(self.n_epochs):
-            info = torch.cuda.memory_stats(self.device)
-            [mem_dict[k].append(info[k]) for k in mem_dict.keys()]
+            if "cuda" in self.device:
+                info = torch.cuda.memory_stats(self.device)
+                [mem_dict[k].append(info[k]) for k in mem_dict.keys()]
 
+            # anneal learning rate
             lr = new_lr(
                 self.learning_rate,
                 self.anneal_lr,
@@ -220,9 +287,11 @@ class ContrastiveEmbedding(object):
                 warmup_epochs=self.warmup_epochs,
                 warmup_lr=self.warmup_lr,
             )
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
 
+            # just change the lr of the first param group, not that of Z
+            optimizer.param_groups[0]["lr"] = lr
+
+            # train for one epoch
             bl = train(X,
                        self.model,
                        self.log_Z,
@@ -230,9 +299,11 @@ class ContrastiveEmbedding(object):
                        optimizer,
                        epoch,
                        clip_grad=self.clip_grad,
-                       print_freq=self.print_freq_in_epoch)
+                       print_freq=self.print_freq_in_epoch,
+                       force_resample=self.force_resample)
             batch_losses.append(bl)
 
+            # callback
             if (
                     self.save_freq is not None
                     and self.save_freq > 0
@@ -244,6 +315,7 @@ class ContrastiveEmbedding(object):
                               self.negative_samples,
                               self.loss_mode,
                               self.log_Z)
+            # print epoch progress
             if (
                     self.print_freq_epoch is not None and
                     epoch % self.print_freq_epoch == 0
@@ -264,14 +336,17 @@ class ContrastiveLoss(torch.nn.Module):
     """Supervised Contrastive Learning: https://arxiv.org/pdf/2004.11362.pdf.
     It also supports the unsupervised contrastive loss in SimCLR"""
 
-    def __init__(self, negative_samples=5,
+    def __init__(self,
+                 negative_samples=5,
                  temperature=0.07,
                  loss_mode='all',
                  metric="euclidean",
                  base_temperature=1,
                  eps=1.0,
                  noise_in_estimator=1.0,
-                 clamp_low=1e-4):
+                 clamp_low=1e-4,
+                 seed=0,
+                 loss_aggregation="mean"):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
         self.temperature = temperature
@@ -281,7 +356,10 @@ class ContrastiveLoss(torch.nn.Module):
         self.noise_in_estimator = noise_in_estimator
         self.eps = eps
         self.clamp_low = clamp_low
+        self.seed = seed
+        torch.manual_seed(self.seed)
         self.neigh_inds = None
+        self.loss_aggregation = loss_aggregation
 
     def forward(self, features, log_Z=None, force_resample=False):
         """Compute loss for model. SimCLR unsupervised loss:
@@ -342,6 +420,7 @@ class ContrastiveLoss(torch.nn.Module):
         else:
             raise ValueError(f"Unknown metric “{self.metric}”")
 
+        # compute loss
         if self.loss_mode == "nce":
             # for proper nce it should be negative_samples * p_noise. But for
             # uniform noise distribution we would need the size of the dataset
@@ -389,7 +468,13 @@ class ContrastiveLoss(torch.nn.Module):
         else:
             raise ValueError(f"Unknown loss_mode “{self.loss_mode}”")
 
-        return loss.mean()
+        # aggregate loss over batch
+        if self.loss_aggregation == "sum":
+            loss = loss.sum()
+        else:
+            loss = loss.mean()
+
+        return loss
 
 
 def new_lr(
@@ -403,6 +488,19 @@ def new_lr(
     warmup_lr=0,
     warmup_epochs=0,
 ):
+    """
+    Decays the learning rate
+    :param learning_rate: float Current learning rate
+    :param anneal_lr: str Specifies the learning rate annealing. Must be one of "none", "linear" or "cosine"
+    :param lr_decay_rate: float Rate of cosine decay.
+    :param lr_min_factor: float Minimal learning rate of linear decay.
+    :param cur_epoch: int Current epoch
+    :param total_epochs: int Total number of epochs
+    :param decay_epochs: int Number of decay epochs (unused)
+    :param warmup_epochs: int Number of epochs for linearly warming up the learning rate
+    :param warmup_lr: float Starting learning rate to warm up from.
+    :return: float New learning rate
+    """
     anneal_epochs = total_epochs - warmup_epochs
     if cur_epoch < warmup_epochs:
         lr = warmup_lr + (learning_rate - warmup_lr) * cur_epoch / warmup_epochs
@@ -411,7 +509,7 @@ def new_lr(
         if anneal_lr == "none":
             lr = learning_rate
         elif anneal_lr == "linear":
-            lr = learning_rate * min(lr_min_factor, 1 - cur_epoch / anneal_epochs)
+            lr = learning_rate * max(lr_min_factor, 1 - cur_epoch / anneal_epochs)
         elif anneal_lr == "cosine":
             eta_min = 0
             lr = (
@@ -427,6 +525,14 @@ def new_lr(
 
 
 def make_neighbor_indices(batch_size, negative_samples, device=None):
+    """
+    Selects neighbor indices
+    :param batch_size: int Batch size
+    :param negative_samples: int Number of negative samples
+    :param device: torch.device Device of the model
+    :return: torch.tensor Neighbor indices
+    :rtype:
+    """
     b = batch_size
 
     if negative_samples < 2 * b - 1:

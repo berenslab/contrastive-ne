@@ -210,3 +210,5 @@ cython_debug/
 
 pdm.lock
 .pdm.toml
+
+for_profiling.py

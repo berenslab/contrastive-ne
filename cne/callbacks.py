@@ -9,14 +9,24 @@ except:
     vis_utils_available = False
 
 class Logger(Callback):
+    """
+    Class for logging various quantities of interest during an contrastive neighbor embedding optimization.
+    """
     def __init__(self,
                  log_embds=False,
                  log_losses=False,
-                 loss_type=None,
                  graph=None,
                  log_norms=False,
                  log_kl=False,
                  n=None):
+        """
+        :param log_embds: bool If true, log intermediate embeddings.
+        :param log_losses: bool If true, log the (expected) loss of the model.
+        :param graph: sparse matrix Holds the similarity graph.
+        :param log_norms: bool If true, log the intermediate values of the parition function.
+        :param log_kl: bool If true, log the intermediate values of the KL divergence.
+        :param n: int Dataset size
+        """
 
         self.log_embds = log_embds
         if self.log_embds:
@@ -26,7 +36,6 @@ class Logger(Callback):
         self.graph = graph.tocoo() if graph is not None else graph
 
         self.log_losses = log_losses
-        self.loss_type = loss_type
         if self.log_losses:
             assert vis_utils_available, f"Need vis_utils package to log losses."
             self.losses = []
@@ -49,6 +58,7 @@ class Logger(Callback):
                                                   shuffle=False)
 
     def __call__(self, epoch, model, negative_samples, loss_mode, log_Z=None, noise_in_estimator=None):
+        # read out the embeddings from the model if anything shall be logged
         if self.log_embds or self.log_norm or self.log_losses or self.log_kl:
             if isinstance(model, torch.nn.modules.sparse.Embedding):
                 # non-parametric case, just get all embeddings from embedding layer
@@ -87,7 +97,7 @@ class Logger(Callback):
                                                   noise_log_arg=True,
                                                   eps=1e-4))
             elif loss_mode == "neg_sample":
-                # turn noise_in_ratio back into Z via
+                # turn noise_in_estimator back into Z via
                 # Z * m * p_n = 1 <--> Z = 1 / (m * p_n)
                 Z = (negative_samples / len(embd)**2)**-1
                 self.losses.append(NCE_loss_keops(high_sim=self.graph,
