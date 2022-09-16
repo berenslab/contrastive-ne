@@ -222,6 +222,7 @@ class ContrastiveEmbedding(object):
         # set up loss
         criterion = ContrastiveLoss(
             negative_samples=self.negative_samples,
+            metric=self.metric,
             temperature=self.temperature,
             loss_mode=self.loss_mode,
             noise_in_estimator=torch.tensor(self.noise_in_estimator).to(self.device),
