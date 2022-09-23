@@ -70,7 +70,7 @@ class Logger(Callback):
                 embd = np.vstack([model(batch[0].to(device))
                                  .detach().cpu().numpy()
                                   for batch in self.dl])
-            if log_Z is not None:
+            if log_Z is not None and self.log_embds:
                 self.Zs.append(torch.exp(log_Z).detach().cpu().numpy())
 
         if self.log_embds:
