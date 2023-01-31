@@ -1,7 +1,25 @@
 # Contrastive Neighbor Embedding Methods
 
 This repo contains code to create a (non-) parametric embedding suitable for data
-visualization with various contrastive losses.
+visualization with various contrastive losses. 
+
+# Scope
+The repo allows for the combination of various different losses, training modes, devices and distance measures. 
+It implements the UMAP loss[^umap], the negative sampling loss (NEG)[^neg], noise-contrastive estimation (NCE)[^nce], and 
+InfoNCE[^infonce]. All of these losses can be combined with embedding similarities either based on the Student-t distribution (default) 
+or on the cosine similarity. The embedding positions can either be optimized directly (non-parametric mode) or a neural network 
+is trained to map data to embedding points (parametric mode). Our pure PyTorch implementation can run seamlessly on CPU or GPU.
+
+As a result, our repo re-implements several existing contrastive methods, alongside many new one. The most important ones
+are summarized the table below.
+
+| Loss              | Non-parametric    | Parametric                                                                     |
+|-------------------|-------------------|--------------------------------------------------------------------------------|
+| UMAP[^umap]       | UMAP[^umap]       | Parametric UMAP[^pumap]                                                        |
+| NEG[^neg]         | Neg-t-SNE (new)   | Parametric Neg-t-SNE (new)                                                     |
+| NCE[^nce]         | NCVis[^ncvis]     | Parametric NCVis (new)                                                         |
+| InfoNCE[^infonce] | InfoNC-t-SNE (new) | Parametric InfoNC-t-SNE (new) <br /> SimCLR[^simclr] (using cosine similarity) |
+
 
 # Installation
 
@@ -80,6 +98,7 @@ plt.show()
 ```
 <img width="400" alt="Neg-t-SNE plot" src="/figures/negtsne_mnist.png">
 
+
 ## Technical detail
 
 The object `ContrastiveEmbedding` needs a neural network `model` as a
@@ -90,3 +109,22 @@ classical NE setting this would be two points that share an edge in
 the kNN graph; the contrastive self-supervised learning approach will transform a
 sample twice and return those as a “positive edge” which will denote
 the attractive force between the two points.
+
+
+# Run time analysis
+The run time depends strongly on the training mode (parametric / non-parametric), the device (CPU / GPU) and on the 
+batch size. The plot below illustrates this for the optimization of a Neg-t-SNE embedding of MNIST. Note that the non-parametric
+setting on GPU becomes competitive with the reference implementations of [UMAP](https://github.com/lmcinnes/umap) and [t-SNE](https://github.com/pavlin-policar/openTSNE).
+
+<img width="400" alt="Run times by batch size" src="/figures/runtime_bs.png">
+
+
+# References
+
+[^umap]: McInnes, Leland, John Healy, and James Melville. "UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction." arXiv preprint arXiv:1802.03426 (2018).  
+[^nce]: Gutmann, Michael U., and Aapo Hyvärinen. "Noise-Contrastive Estimation of Unnormalized Statistical Models, with Applications to Natural Image Statistics." Journal of Machine Learning Research 13.2 (2012).  
+[^neg]: Mikolov, Tomas, et al. "Distributed Representations of Words and Phrases and their Compositionality." Advances in Neural Information Processing Systems 26 (2013).  
+[^infonce]: Oord, Aaron van den, Yazhe Li, and Oriol Vinyals. "Representation learning with contrastive predictive coding." arXiv preprint arXiv:1807.03748 (2018).  
+[^pumap]: Sainburg, Tim, Leland McInnes, and Timothy Q. Gentner. "Parametric UMAP embeddings for representation and semisupervised learning." Neural Computation 33.11 (2021): 2881-2907.  
+[^ncvis]: Artemenkov, Aleksandr, and Maxim Panov. "NCVis: noise contrastive approach for scalable visualization." Proceedings of The Web Conference 2020. 2020.  
+[^simclr]: Chen, Ting, et al. "A simple framework for contrastive learning of visual representations." International conference on machine learning. PMLR, 2020.  
