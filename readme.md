@@ -5,9 +5,9 @@ visualization with various contrastive losses.
 
 # Scope
 The repo allows for the combination of various different losses, training modes, devices and distance measures. 
-It implements the UMAP loss[^umap], the negative sampling loss (NEG)[^neg], noise-contrastive estimation loss (NCE)[^nce], and 
-InfoNCE loss[^infonce]. All of these losses can be combined with embedding similarities either based on the Cauchy distribution (default) 
-or on the cosine similarity. The embedding positions can either be optimized directly (non-parametric mode) or a neural network 
+It (re-)implements the UMAP loss[^umap], the negative sampling loss (NEG)[^neg], noise-contrastive estimation loss (NCE)[^nce], and 
+InfoNCE loss[^infonce] in PyTorch. All of these losses can be combined with embedding similarities either based on the Cauchy distribution (default) 
+or on the cosine distance. The embedding positions can either be optimized directly (non-parametric mode) or a neural network 
 is trained to map data to embedding points (parametric mode). Our pure PyTorch implementation can run seamlessly on CPU or GPU.
 
 As a result, our repo re-implements several existing contrastive methods, alongside many new ones. The most important ones
@@ -116,7 +116,7 @@ The run time depends strongly on the training mode (parametric / non-parametric)
 batch size. The plot below illustrates this for the optimization of a Neg-t-SNE embedding of MNIST. Note that the non-parametric
 setting on GPU becomes competitive with the reference implementations of UMAP[^umap] and t-SNE[^tsne].
 
-<img width="400" alt="Run times by batch size" src="/figures/runtime_bs.png">
+<img width="600" alt="Run times by batch size" src="/figures/runtime_bs.png">
 
 
 # References
