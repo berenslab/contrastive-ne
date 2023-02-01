@@ -98,7 +98,9 @@ class ContrastiveEmbedding(object):
         temperature=0.5,
         noise_in_estimator=1.0,
         Z_bar=None,
+        s=None,
         eps=1.0,
+        clamp_high=1.0,
         clamp_low=1e-4,
         Z=1.0,
         loss_mode="umap",
@@ -131,7 +133,9 @@ class ContrastiveEmbedding(object):
         :param temperature: float Temperature used in Cosine similarity
         :param noise_in_estimator: float Value used in negative sampling's fraction q / (q+ noise_in_estimator), redundant with Z_bar
         :param Z_bar: float Fixed normalization constant in negative sampling, redundant with noise_in_estimator
+        :param s: float Slider parameter setting the fixed normalization constant, redundant with noise_in_estimator
         :param eps: float Iterpolates between UMAP's implicit similarity (eps = 0) and the Cauchy kernels (eps = 1.0)
+        :param clamp_high: float Upper value at which arguments to logarithms are clamped.
         :param clamp_low: float Lower value at which arguments to logarithms are clamped.
         :param Z: float Initial value for the learned normalization parameter of NCE
         :param loss_mode: str Specifies which loss to use. Must be one of "umap", "neg_sample", "nce", "infonce", "infonce_alt"
@@ -178,6 +182,7 @@ class ContrastiveEmbedding(object):
         self.print_freq_epoch = print_freq_epoch
         self.print_freq_in_epoch = print_freq_in_epoch
         self.eps = eps
+        self.clamp_high = clamp_high
         self.clamp_low = clamp_low
         self.seed = seed
         self.loss_aggregation = loss_aggregation
@@ -190,16 +195,21 @@ class ContrastiveEmbedding(object):
             self.log_Z = torch.nn.Parameter(self.log_Z, requires_grad=True)
 
         if self.loss_mode == "neg_sample":
+            n_specified_params = (noise_in_estimator is not None) + (Z_bar is not None) + (s is not None)
             assert (
-                noise_in_estimator is not None or Z_bar is not None
-            ), f"Exactly one of 'noise_in_estimator' and 'Z_bar' must be not None."
+                n_specified_params > 0
+                #noise_in_estimator is not None or Z_bar is not None or s is not None
+            ), f"Exactly one of 'noise_in_estimator', 'Z_bar' and 's' must be not None."
 
-            if noise_in_estimator is not None and Z_bar is not None:
+            if n_specified_params > 1:
                 print(
-                    "Warning: Both 'noise_in_estimator' and 'Z_bar' were specified. Only 'Z_bar' will be considered."
+                    "Warning: More than one of 'noise_in_estimator', 'Z_bar' and "
+                    "'s' were specified. 's' will supersede 'Z_bar', which supersedes 'noise_in_estimator'."
                 )
+        self.s = s
         self.Z_bar = Z_bar
         self.noise_in_estimator = noise_in_estimator
+
 
         # move to correct device at init, esp before registering with the optimizer
         self.model = self.model.to(self.device)
@@ -213,9 +223,18 @@ class ContrastiveEmbedding(object):
         """
         # translate Z_bar into noise_in_estimator
         if self.loss_mode == "neg_sample":
+            # if not explicitly passed, use dataset length, only works if DataLoader is over data points, not over similar pairs
+            n = len(X) if n is None else n
+            if self.s is not None:
+                # overwrite self.Z_bar
+                Z_umap = n**2 / self.negative_samples
+                Z_tsne = 100 * n
+                # s = 0 --> z_tsne, s = 1 --> z_umap; using logs for numerical stability
+                self.Z_bar = Z_tsne * np.exp(self.s * (np.log(Z_umap) - np.log(Z_tsne)))
+
+                #print(self.Z_bar)
+
             if self.Z_bar is not None:
-                # if not explicitly passed, use dataset length
-                n = len(X) if n is None else n
                 # assume uniform noise distribution over n**2 many edges
                 self.noise_in_estimator = self.negative_samples * self.Z_bar / n**2
 
@@ -227,6 +246,7 @@ class ContrastiveEmbedding(object):
             loss_mode=self.loss_mode,
             noise_in_estimator=torch.tensor(self.noise_in_estimator).to(self.device),
             eps=torch.tensor(self.eps).to(self.device),
+            clamp_high=self.clamp_high,
             clamp_low=self.clamp_low,
             seed=self.seed,
             loss_aggregation=self.loss_aggregation,
@@ -354,6 +374,7 @@ class ContrastiveLoss(torch.nn.Module):
         base_temperature=1,
         eps=1.0,
         noise_in_estimator=1.0,
+        clamp_high=1.0,
         clamp_low=1e-4,
         seed=0,
         loss_aggregation="mean",
@@ -366,6 +387,7 @@ class ContrastiveLoss(torch.nn.Module):
         self.base_temperature = base_temperature
         self.noise_in_estimator = noise_in_estimator
         self.eps = eps
+        self.clamp_high = clamp_high
         self.clamp_low = clamp_low
         self.seed = seed
         torch.manual_seed(self.seed)
@@ -445,8 +467,8 @@ class ContrastiveLoss(torch.nn.Module):
                 probits = probits / torch.exp(log_Z)
                 estimator = probits / (probits + negative_samples)
 
-            loss = -(~neigh_mask * torch.log(estimator.clamp(self.clamp_low, 1))) - (
-                neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, 1))
+            loss = -(~neigh_mask * torch.log(estimator.clamp(self.clamp_low, self.clamp_high))) - (
+                neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, self.clamp_high))
             )
         elif self.loss_mode == "neg_sample":
             if self.metric == "euclidean":
@@ -455,26 +477,26 @@ class ContrastiveLoss(torch.nn.Module):
             else:
                 estimator = probits / (probits + self.noise_in_estimator)
 
-            loss = -(~neigh_mask * torch.log(estimator.clamp(self.clamp_low, 1))) - (
-                neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, 1))
+            loss = -(~neigh_mask * torch.log(estimator.clamp(self.clamp_low, self.clamp_high))) - (
+                neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, self.clamp_high))
             )
 
         elif self.loss_mode == "umap":
             # cross entropy parametric umap loss
-            loss = -(~neigh_mask * torch.log(probits.clamp(self.clamp_low, 1))) - (
-                neigh_mask * torch.log((1 - probits).clamp(self.clamp_low, 1))
+            loss = -(~neigh_mask * torch.log(probits.clamp(self.clamp_low, self.clamp_high))) - (
+                neigh_mask * torch.log((1 - probits).clamp(self.clamp_low, self.clamp_high))
             )
         elif self.loss_mode == "infonce":
             # loss from e.g. sohn et al 2016, includes pos similarity in denominator
             loss = -(self.temperature / self.base_temperature) * (
-                (torch.log(probits.clamp(self.clamp_low, 1)[~neigh_mask]))
-                - torch.log(probits.clamp(self.clamp_low, 1).sum(axis=1))
+                (torch.log(probits.clamp(self.clamp_low, self.clamp_high)[~neigh_mask]))
+                - torch.log(probits.clamp(self.clamp_low, self.clamp_high).sum(axis=1))
             )
         elif self.loss_mode == "infonce_alt":
             # loss simclr
             loss = -(self.temperature / self.base_temperature) * (
-                (torch.log(probits.clamp(self.clamp_low, 1)[~neigh_mask]))
-                - torch.log((neigh_mask * probits.clamp(self.clamp_low, 1)).sum(axis=1))
+                (torch.log(probits.clamp(self.clamp_low, self.clamp_high)[~neigh_mask]))
+                - torch.log((neigh_mask * probits.clamp(self.clamp_low, self.clamp_high)).sum(axis=1))
             )
         else:
             raise ValueError(f"Unknown loss_mode “{self.loss_mode}”")
