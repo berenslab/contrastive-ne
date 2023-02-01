@@ -5,20 +5,20 @@ visualization with various contrastive losses.
 
 # Scope
 The repo allows for the combination of various different losses, training modes, devices and distance measures. 
-It implements the UMAP loss[^umap], the negative sampling loss (NEG)[^neg], noise-contrastive estimation (NCE)[^nce], and 
-InfoNCE[^infonce]. All of these losses can be combined with embedding similarities either based on the Student-t distribution (default) 
+It implements the UMAP loss[^umap], the negative sampling loss (NEG)[^neg], noise-contrastive estimation loss (NCE)[^nce], and 
+InfoNCE loss[^infonce]. All of these losses can be combined with embedding similarities either based on the Cauchy distribution (default) 
 or on the cosine similarity. The embedding positions can either be optimized directly (non-parametric mode) or a neural network 
 is trained to map data to embedding points (parametric mode). Our pure PyTorch implementation can run seamlessly on CPU or GPU.
 
-As a result, our repo re-implements several existing contrastive methods, alongside many new one. The most important ones
+As a result, our repo re-implements several existing contrastive methods, alongside many new ones. The most important ones
 are summarized the table below.
 
-| Loss              | Non-parametric    | Parametric                                                                     |
-|-------------------|-------------------|--------------------------------------------------------------------------------|
-| UMAP[^umap]       | UMAP[^umap]       | Parametric UMAP[^pumap]                                                        |
-| NEG[^neg]         | Neg-t-SNE (new)   | Parametric Neg-t-SNE (new)                                                     |
-| NCE[^nce]         | NCVis[^ncvis]     | Parametric NCVis (new)                                                         |
-| InfoNCE[^infonce] | InfoNC-t-SNE (new) | Parametric InfoNC-t-SNE (new) <br /> SimCLR[^simclr] (using cosine similarity) |
+| Loss              | Non-parametric    | Parametric                                                                                              |
+|-------------------|-------------------|---------------------------------------------------------------------------------------------------------|
+| UMAP[^umap]       | UMAP[^umap]       | Parametric UMAP[^pumap]                                                                                 |
+| NEG[^neg]         | Neg-t-SNE (new)   | Parametric Neg-t-SNE (new)                                                                              |
+| NCE[^nce]         | NCVis[^ncvis]     | Parametric NCVis (new)                                                                                  |
+| InfoNCE[^infonce] | InfoNC-t-SNE (new) | Parametric InfoNC-t-SNE (new) <br /> SimCLR[^simclr] (using cosine similarity but no data augmentation) |
 
 
 # Installation
@@ -114,7 +114,7 @@ the attractive force between the two points.
 # Run time analysis
 The run time depends strongly on the training mode (parametric / non-parametric), the device (CPU / GPU) and on the 
 batch size. The plot below illustrates this for the optimization of a Neg-t-SNE embedding of MNIST. Note that the non-parametric
-setting on GPU becomes competitive with the reference implementations of [UMAP](https://github.com/lmcinnes/umap) and [t-SNE](https://github.com/pavlin-policar/openTSNE).
+setting on GPU becomes competitive with the reference implementations of UMAP[^umap] and t-SNE[^tsne].
 
 <img width="400" alt="Run times by batch size" src="/figures/runtime_bs.png">
 
@@ -124,7 +124,8 @@ setting on GPU becomes competitive with the reference implementations of [UMAP](
 [^umap]: McInnes, Leland, John Healy, and James Melville. "UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction." arXiv preprint arXiv:1802.03426 (2018).  
 [^nce]: Gutmann, Michael U., and Aapo Hyvärinen. "Noise-Contrastive Estimation of Unnormalized Statistical Models, with Applications to Natural Image Statistics." Journal of Machine Learning Research 13.2 (2012).  
 [^neg]: Mikolov, Tomas, et al. "Distributed Representations of Words and Phrases and their Compositionality." Advances in Neural Information Processing Systems 26 (2013).  
-[^infonce]: Oord, Aaron van den, Yazhe Li, and Oriol Vinyals. "Representation learning with contrastive predictive coding." arXiv preprint arXiv:1807.03748 (2018).  
-[^pumap]: Sainburg, Tim, Leland McInnes, and Timothy Q. Gentner. "Parametric UMAP embeddings for representation and semisupervised learning." Neural Computation 33.11 (2021): 2881-2907.  
-[^ncvis]: Artemenkov, Aleksandr, and Maxim Panov. "NCVis: noise contrastive approach for scalable visualization." Proceedings of The Web Conference 2020. 2020.  
-[^simclr]: Chen, Ting, et al. "A simple framework for contrastive learning of visual representations." International conference on machine learning. PMLR, 2020.  
+[^infonce]: Oord, Aaron van den, Yazhe Li, and Oriol Vinyals. "Representation Learning with Contrastive Predictive Coding." arXiv preprint arXiv:1807.03748 (2018).  
+[^pumap]: Sainburg, Tim, Leland McInnes, and Timothy Q. Gentner. "Parametric UMAP Embeddings for Representation and Semisupervised Learning." Neural Computation 33.11 (2021): 2881-2907.  
+[^ncvis]: Artemenkov, Aleksandr, and Maxim Panov. "NCVis: Noise Contrastive Approach for Scalable Visualization." Proceedings of The Web Conference 2020. 2020.  
+[^simclr]: Chen, Ting, et al. "A Simple Framework for Contrastive Learning of Visual Representations." International conference on machine learning. PMLR, 2020.  
+[^tsne]: Poličar, Pavlin G., Martin Stražar, and Blaž Zupan. "openTSNE: a modular Python library for t-SNE dimensionality reduction and embedding." BioRxiv (2019): 731877.
