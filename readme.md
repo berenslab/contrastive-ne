@@ -1,7 +1,11 @@
 # Contrastive Neighbor Embedding Methods
 
 This repo contains code to create a (non-) parametric embedding suitable for data
-visualization with various contrastive losses. 
+visualization with various contrastive losses.
+
+It implements the core functions used in the paper **From *t*-SNE to UMAP with contrastive learning**, accepted at ICLR 
+2023 ([openreview](https://openreview.net/forum?id=B8a1FcY0vi), [arxiv](https://arxiv.org/abs/2206.01816)). Details on 
+how to reproduce the experiments of the paper can be found in the repo [cl_tsne_umap](https://github.com/hci-unihd/cl-tsne-umap).
 
 # Scope
 The repo allows for the combination of various different losses, training modes, devices and distance measures. 
