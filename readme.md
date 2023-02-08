@@ -1,20 +1,25 @@
 # Contrastive Neighbor Embedding Methods
 
-This repo contains code to create a (non-) parametric embedding suitable for data
-visualization with various contrastive losses.
+This repository contains code to create parametric and nonparametric embeddings suitable for data
+visualization with various contrastive losses. 
 
-It implements the core functions used in the paper **From *t*-SNE to UMAP with contrastive learning**, accepted at ICLR 
-2023 ([openreview](https://openreview.net/forum?id=B8a1FcY0vi), [arxiv](https://arxiv.org/abs/2206.01816)). Details on 
-how to reproduce the experiments of the paper can be found in the repo [cl_tsne_umap](https://github.com/hci-unihd/cl-tsne-umap).
+Reference:
 
-# Scope
-The repo allows for the combination of various different losses, training modes, devices and distance measures. 
+* [From t-SNE to UMAP with contrastive learning](https://openreview.net/forum?id=B8a1FcY0vi), _ICLR 2023_  
+  Sebastian Damrich, Niklas Böhm, Fred A Hamprecht, Dmitry Kobak
+  
+This repository provides our PyTorch library. The code that implements the specific analysis presented in the paper is available at https://github.com/hci-unihd/cl-tsne-umap.
+
+
+## Scope
+
+This repository allows to use several different losses, training modes, devices, and distance measures. 
 It (re-)implements the UMAP loss[^umap], the negative sampling loss (NEG)[^neg], noise-contrastive estimation loss (NCE)[^nce], and 
 InfoNCE loss[^infonce] in PyTorch. All of these losses can be combined with embedding similarities either based on the Cauchy distribution (default) 
 or on the cosine distance. The embedding positions can either be optimized directly (non-parametric mode) or a neural network 
-is trained to map data to embedding points (parametric mode). Our pure PyTorch implementation can run seamlessly on CPU or GPU.
+can be trained to map data to embedding positions (parametric mode). Our pure PyTorch implementation can run seamlessly on CPU or GPU.
 
-As a result, our repo re-implements several existing contrastive methods, alongside many new ones. The most important ones
+As a result, this library re-implements several existing contrastive methods, alongside many new ones. The most important ones
 are summarized the table below.
 
 | Loss              | Non-parametric    | Parametric                     |
@@ -23,6 +28,7 @@ are summarized the table below.
 | NEG[^neg]         | Neg-t-SNE (new)   | Parametric Neg-t-SNE (new)     |
 | NCE[^nce]         | NCVis[^ncvis]     | Parametric NCVis (new)         |
 | InfoNCE[^infonce] | InfoNC-t-SNE (new) | Parametric InfoNC-t-SNE (new) |
+
 
 
 The repository can also be used to run  SimCLR[^simclr] experiments, by using the InfoNCE loss.  The main class 
@@ -120,7 +126,8 @@ normalization similar to that of t-SNE, while setting `s=1` yields an embedding 
 constant. Other values for `s`inter- and extrapolate these two special cases and thus lead to an embedding between
 or beyond t-SNE and UMAP. The default corresponds to `s=1`. If both hyperparameters are set, `s` supercedes `Z_bar`.
 
-## Technical detail
+
+## Technical details
 
 The object `ContrastiveEmbedding` needs a neural network `model` as a
 required parameter in order to be created.  The `fit` method then
@@ -132,15 +139,13 @@ sample twice and return those as a “positive edge” which will denote
 the attractive force between the two points.
 
 
-# Run time analysis
+## Run time analysis
 The run time depends strongly on the training mode (parametric / non-parametric), the device (CPU / GPU) and on the 
 batch size. The plot below illustrates this for the optimization of a Neg-t-SNE embedding of MNIST. Note that the non-parametric
 setting on GPU becomes competitive with the reference implementations of UMAP[^umap] and t-SNE[^tsne].
 
 <img width="600" alt="Run times by batch size" src="/figures/runtime_bs.png">
 
-
-# References
 
 [^umap]: McInnes, Leland, John Healy, and James Melville. "UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction." arXiv preprint arXiv:1802.03426 (2018).  
 [^nce]: Gutmann, Michael U., and Aapo Hyvärinen. "Noise-Contrastive Estimation of Unnormalized Statistical Models, with Applications to Natural Image Statistics." Journal of Machine Learning Research 13.2 (2012).  
