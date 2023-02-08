@@ -138,7 +138,7 @@ class ContrastiveEmbedding(object):
         :param clamp_high: float Upper value at which arguments to logarithms are clamped.
         :param clamp_low: float Lower value at which arguments to logarithms are clamped.
         :param Z: float Initial value for the learned normalization parameter of NCE
-        :param loss_mode: str Specifies which loss to use. Must be one of "umap", "neg_sample", "nce", "infonce", "infonce_alt"
+        :param loss_mode: str Specifies which loss to use. Must be one of "umap", "neg", "nce", "infonce", "infonce_alt". "neg_sample" is depricated and defaults to "neg"
         :param metric: str Specifies which metric to use for computing distances. Must be "cosine" or "euclidean".
         :param optimizer: str Specifies which optimizer to use. Must be "sgd" or "adam"
         :param weight_decay: float Value of weight decay.
@@ -191,6 +191,13 @@ class ContrastiveEmbedding(object):
         self.warmup_lr = warmup_lr
 
         self.log_Z = torch.tensor(np.log(Z), device=self.device)
+
+        # alias for loss mode "neg" to ensure backwards compatibility
+        # since the loss mode is put into the file names, which are featured in the notebooks,
+        # we keep "neg_sample" internally
+        if self.loss_mode == "neg":
+            self.loss_mode = "neg_sample"
+
         if self.loss_mode == "nce":
             self.log_Z = torch.nn.Parameter(self.log_Z, requires_grad=True)
 
@@ -198,7 +205,7 @@ class ContrastiveEmbedding(object):
             n_specified_params = (noise_in_estimator is not None) + (Z_bar is not None) + (s is not None)
             assert (
                 n_specified_params > 0
-                #noise_in_estimator is not None or Z_bar is not None or s is not None
+                # noise_in_estimator is not None or Z_bar is not None or s is not None
             ), f"Exactly one of 'noise_in_estimator', 'Z_bar' and 's' must be not None."
 
             if n_specified_params > 1:
@@ -209,7 +216,6 @@ class ContrastiveEmbedding(object):
         self.s = s
         self.Z_bar = Z_bar
         self.noise_in_estimator = noise_in_estimator
-
 
         # move to correct device at init, esp before registering with the optimizer
         self.model = self.model.to(self.device)
