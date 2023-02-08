@@ -17,13 +17,18 @@ is trained to map data to embedding points (parametric mode). Our pure PyTorch i
 As a result, our repo re-implements several existing contrastive methods, alongside many new ones. The most important ones
 are summarized the table below.
 
-| Loss              | Non-parametric    | Parametric                                                                                              |
-|-------------------|-------------------|---------------------------------------------------------------------------------------------------------|
-| UMAP[^umap]       | UMAP[^umap]       | Parametric UMAP[^pumap]                                                                                 |
-| NEG[^neg]         | Neg-t-SNE (new)   | Parametric Neg-t-SNE (new)                                                                              |
-| NCE[^nce]         | NCVis[^ncvis]     | Parametric NCVis (new)                                                                                  |
-| InfoNCE[^infonce] | InfoNC-t-SNE (new) | Parametric InfoNC-t-SNE (new) <br /> SimCLR[^simclr] (using cosine similarity but no data augmentation) |
+| Loss              | Non-parametric    | Parametric                     |
+|-------------------|-------------------|--------------------------------|
+| UMAP[^umap]       | UMAP[^umap]       | Parametric UMAP[^pumap]        |
+| NEG[^neg]         | Neg-t-SNE (new)   | Parametric Neg-t-SNE (new)     |
+| NCE[^nce]         | NCVis[^ncvis]     | Parametric NCVis (new)         |
+| InfoNCE[^infonce] | InfoNC-t-SNE (new) | Parametric InfoNC-t-SNE (new) |
 
+
+The repository can also be used to run  SimCLR[^simclr] experiments, by using the InfoNCE loss.  The main class 
+`ContrastiveEmbedding` allows to change the similarity measure to the exponential of a temperature-scaled cosine 
+similarity (`metric="cosine"`). Its `forward` method accepts a dataloader. If the dataloader implements data augmentation 
+one obtains SimCLR. 
 
 # Installation
 
@@ -74,7 +79,7 @@ embedder_ncvis = cne.CNE(loss_mode="nce",
 embd_ncvis = embedder_ncvis.fit_transform(x)
 
 # non-parametric Neg-t-SNE
-embedder_neg = cne.CNE(loss_mode="neg_sample",
+embedder_neg = cne.CNE(loss_mode="neg",
                        k=15,
                        optimizer="sgd",
                        momentum=0.0,
@@ -102,6 +107,18 @@ plt.show()
 ```
 <img width="400" alt="Neg-t-SNE plot" src="/figures/negtsne_mnist.png">
 
+
+## Negative sampling spectrum
+Using the negative sampling loss (`loss_mode="neg"`), one can obtain a spectrum of embeddings that includes embeddings
+similar to t-SNE and UMAP. It implements a trade-off between preserving discrete (local) and continuous (global) structure. The 
+optional arguments `Z_bar` and `s` control the location 
+on the spectrum. For both, larger values yield to more attraction and thus better global structure preservation, while 
+smaller values lead to a focus on the local structure. They differ in their scaling. The hyperparameter `Z_bar` directly sets the 
+fixed normalization constant. This give more direct control, but also requires some knowledge about the suitable range 
+for `Z_bar`. In contrast, the 'slider' hyperparameter `s` is more intuitive. Setting `s=0` yields and embedding with 
+normalization similar to that of t-SNE, while setting `s=1` yields an embedding with UMAP's default fixed normalization
+constant. Other values for `s`inter- and extrapolate these two special cases and thus lead to an embedding between
+or beyond t-SNE and UMAP. The default corresponds to `s=1`. If both hyperparameters are set, `s` supercedes `Z_bar`.
 
 ## Technical detail
 
