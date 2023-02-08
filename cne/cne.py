@@ -446,8 +446,8 @@ class ContrastiveLoss(torch.nn.Module):
             probits = torch.div(1, self.eps + dists)
         elif self.metric == "cosine":
             norm = torch.nn.functional.normalize
-            o = norm(origs).unsqueeze(1)
-            n = norm(neighbors).transpose(1, 2)
+            o = norm(origs.unsqueeze(1), dim=2)
+            n = norm(neighbors.transpose(1, 2), dim=1)
             logits = torch.bmm(o, n).squeeze() / self.temperature
             # logits_max, _ = logits.max(dim=1, keepdim=True)
             # logits -= logits_max.detach()
