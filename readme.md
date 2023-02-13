@@ -8,6 +8,15 @@ Reference:
 * [From t-SNE to UMAP with contrastive learning](https://openreview.net/forum?id=B8a1FcY0vi), _ICLR 2023_  
   Sebastian Damrich, Niklas Böhm, Fred A Hamprecht, Dmitry Kobak
   
+```
+@inproceedings{damrich2023from,
+  title={From $t$-{SNE} to {UMAP} with contrastive learning},
+  author={Damrich, Sebastian and B{\"o}hm, Jan Niklas  and Hamprecht, Fred A and Kobak, Dmitry},
+  booktitle={International Conference on Learning Representations},
+  year={2023},
+}
+```
+
 This repository provides our PyTorch library. The code that implements the specific analysis presented in the paper is available at https://github.com/hci-unihd/cl-tsne-umap.
 
 
