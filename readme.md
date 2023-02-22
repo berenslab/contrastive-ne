@@ -8,6 +8,15 @@ Reference:
 * [From t-SNE to UMAP with contrastive learning](https://openreview.net/forum?id=B8a1FcY0vi), _ICLR 2023_  
   Sebastian Damrich, Niklas Böhm, Fred A Hamprecht, Dmitry Kobak
   
+```
+@inproceedings{damrich2023from,
+  title={From $t$-{SNE} to {UMAP} with contrastive learning},
+  author={Damrich, Sebastian and B{\"o}hm, Jan Niklas  and Hamprecht, Fred A and Kobak, Dmitry},
+  booktitle={International Conference on Learning Representations},
+  year={2023},
+}
+```
+
 This repository provides our PyTorch library. The code that implements the specific analysis presented in the paper is available at https://github.com/hci-unihd/cl-tsne-umap.
 
 
@@ -36,7 +45,7 @@ The repository can also be used to run  SimCLR[^simclr] experiments, by using th
 similarity (`metric="cosine"`). Its `forward` method accepts a dataloader. If the dataloader implements data augmentation 
 one obtains SimCLR. 
 
-# Installation
+## Installation
 
 Clone this repository
 ```sh
@@ -51,7 +60,7 @@ dependency, so if it is not installed already, it might make
 sense to consult the [pytorch website](https://pytorch.org) to install
 it with CUDA support.
 
-# Example
+## Example
 
 The most basic use is via `CNE`. You can create embeddings as follows:
 
@@ -119,12 +128,16 @@ Using the negative sampling loss (`loss_mode="neg"`), one can obtain a spectrum 
 similar to t-SNE and UMAP. It implements a trade-off between preserving discrete (local) and continuous (global) structure. The 
 optional arguments `Z_bar` and `s` control the location 
 on the spectrum. For both, larger values yield to more attraction and thus better global structure preservation, while 
-smaller values lead to a focus on the local structure. They differ in their scaling. The hyperparameter `Z_bar` directly sets the 
+smaller values lead to a focus on the local structure. 
+
+The two parameters differ in their scaling. The hyperparameter `Z_bar` directly sets the 
 fixed normalization constant. This give more direct control, but also requires some knowledge about the suitable range 
 for `Z_bar`. In contrast, the 'slider' hyperparameter `s` is more intuitive. Setting `s=0` yields and embedding with 
-normalization similar to that of t-SNE, while setting `s=1` yields an embedding with UMAP's default fixed normalization
-constant. Other values for `s`inter- and extrapolate these two special cases and thus lead to an embedding between
-or beyond t-SNE and UMAP. The default corresponds to `s=1`. If both hyperparameters are set, `s` supercedes `Z_bar`.
+normalization similar to that of t-SNE (the code set `Z_bar = 100 * n` where `n` is the sample size), 
+while setting `s=1` yields an embedding with UMAP's default fixed normalization constant (`Z_bar = n**2 / m` where `m`
+is the number of negative samples). Other values for `s` inter- and extrapolate these two special cases 
+and thus lead to an embedding between
+or beyond t-SNE and UMAP. The default corresponds to `s=1`. If both hyperparameters are set, `s` overrides `Z_bar`.
 
 
 ## Technical details
