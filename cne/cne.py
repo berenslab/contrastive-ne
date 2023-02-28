@@ -574,7 +574,7 @@ def make_neighbor_indices(batch_size, negative_samples, device=None):
     """
     b = batch_size
 
-    if negative_samples < 2 * b - 1:
+    if negative_samples < 2 * b - 2:
         # uniform probability for all points in the minibatch,
         # we sample points for repulsion randomly
         neg_inds = torch.randint(0, 2 * b - 1, (b, negative_samples), device=device)
