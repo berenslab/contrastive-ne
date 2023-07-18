@@ -178,6 +178,7 @@ class CNE(object):
                  seed=0,
                  loss_aggregation="sum",
                  anneal_lr=True,
+                 feat_dim=2,
                  **kwargs):
         """
         :param model: Embedding model
@@ -197,6 +198,7 @@ class CNE(object):
         self.seed = seed
         self.loss_aggregation = loss_aggregation
         self.anneal_lr = anneal_lr
+        self.feat_dim = feat_dim
 
 
     def fit_transform(self, X, init=None, graph=None):
@@ -230,13 +232,12 @@ class CNE(object):
         start_time = time.time()
         X = X.reshape(X.shape[0], -1)
         in_dim = X.shape[1]
-
         # set up model if not given
         if self.model is None:
             if self.parametric:
                 self.embd_layer = torch.nn.Embedding.from_pretrained(torch.tensor(X),
                                                                      freeze=True)
-                self.network = FCNetwork(in_dim)
+                self.network = FCNetwork(in_dim, feat_dim=self.feat_dim)
                 self.model = torch.nn.Sequential(
                     self.embd_layer,
                     self.network
@@ -294,7 +295,6 @@ class CNE(object):
                                                batch_size=self.cne.batch_size,
                                                on_gpu=self.on_gpu,
                                                seed=self.seed)
-
         # fit the model
         self.cne.fit(self.dataloader, len(X))
         end_time = time.time()
