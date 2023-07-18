@@ -100,8 +100,8 @@ class ContrastiveEmbedding(object):
         Z_bar=None,
         s=None,
         eps=1.0,
-        clamp_high=1.0,
-        clamp_low=1e-4,
+        clamp_high="auto",
+        clamp_low="auto",
         Z=1.0,
         loss_mode="umap",
         metric="euclidean",
@@ -135,8 +135,8 @@ class ContrastiveEmbedding(object):
         :param Z_bar: float Fixed normalization constant in negative sampling, redundant with noise_in_estimator
         :param s: float Slider parameter setting the fixed normalization constant, redundant with noise_in_estimator
         :param eps: float Iterpolates between UMAP's implicit similarity (eps = 0) and the Cauchy kernels (eps = 1.0)
-        :param clamp_high: float Upper value at which arguments to logarithms are clamped.
-        :param clamp_low: float Lower value at which arguments to logarithms are clamped.
+        :param clamp_high: float Upper value at which arguments to logarithms are clamped. Default "auto" chooses values based on the metric. For metric="euclidean" it is 1.0, for metric="cosine" it is inf.
+        :param clamp_low: float Lower value at which arguments to logarithms are clamped. Default "auto" chooses values based on the metric. For metric="euclidean" it is 1e-4, for metric="cosine" it is -inf.
         :param Z: float Initial value for the learned normalization parameter of NCE
         :param loss_mode: str Specifies which loss to use. Must be one of "umap", "neg", "nce", "infonce", "infonce_alt". "neg_sample" is depricated and defaults to "neg"
         :param metric: str Specifies which metric to use for computing distances. Must be "cosine" or "euclidean".
@@ -182,16 +182,12 @@ class ContrastiveEmbedding(object):
         self.print_freq_epoch = print_freq_epoch
         self.print_freq_in_epoch = print_freq_in_epoch
         self.eps = eps
-        self.clamp_high = clamp_high
-        self.clamp_low = clamp_low
         self.seed = seed
         self.loss_aggregation = loss_aggregation
         self.force_resample = force_resample
         self.warmup_epochs = warmup_epochs
         self.warmup_lr = warmup_lr
-
         self.log_Z = torch.tensor(np.log(Z), device=self.device)
-
         # alias for loss mode "neg" to ensure backwards compatibility
         # since the loss mode is put into the file names, which are featured in the notebooks,
         # we keep "neg_sample" internally
@@ -213,6 +209,23 @@ class ContrastiveEmbedding(object):
                     "Warning: More than one of 'noise_in_estimator', 'Z_bar' and "
                     "'s' were specified. 's' will supersede 'Z_bar', which supersedes 'noise_in_estimator'."
                 )
+
+        # set up clamping values depending on loss mode
+        if clamp_low is "auto":
+            if self.metric == "euclidean":
+                self.clamp_low = 1e-4
+            elif self.metric == "cosine":
+                self.clamp_low = float("-inf")
+            else:
+                raise ValueError(f"Unknown metric {self.metric}")
+        if clamp_high is "auto":
+            if self.metric == "euclidean":
+                self.clamp_high = 1.0
+            elif self.metric == "cosine":
+                self.clamp_high = float("inf")
+            else:
+                raise ValueError(f"Unknown metric {self.metric}")
+
         self.s = s
         self.Z_bar = Z_bar
         self.noise_in_estimator = noise_in_estimator
