@@ -1,3 +1,3 @@
 from .cne import *
-from .simple import *
+from ._cne import *
 from .callbacks import *
