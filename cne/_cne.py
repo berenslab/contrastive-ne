@@ -178,7 +178,7 @@ class CNE(object):
                  seed=0,
                  loss_aggregation="sum",
                  anneal_lr=True,
-                 feat_dim=2,
+                 embd_dim=2,
                  **kwargs):
         """
         :param model: Embedding model
@@ -198,7 +198,7 @@ class CNE(object):
         self.seed = seed
         self.loss_aggregation = loss_aggregation
         self.anneal_lr = anneal_lr
-        self.feat_dim = feat_dim
+        self.embd_dim = embd_dim
 
 
     def fit_transform(self, X, init=None, graph=None):
@@ -237,7 +237,7 @@ class CNE(object):
             if self.parametric:
                 self.embd_layer = torch.nn.Embedding.from_pretrained(torch.tensor(X),
                                                                      freeze=True)
-                self.network = FCNetwork(in_dim, feat_dim=self.feat_dim)
+                self.network = FCNetwork(in_dim, feat_dim=self.embd_dim)
                 self.model = torch.nn.Sequential(
                     self.embd_layer,
                     self.network
@@ -245,11 +245,11 @@ class CNE(object):
             else:
                 if init is None:
                     # default to pca
-                    pca_projector = PCA(n_components=2)
+                    pca_projector = PCA(n_components=self.embd_dim)
                     init = pca_projector.fit_transform(X)
                     init /= (init[:, 0].std())
                 elif type(init).__module__ == np.__name__:
-                    assert len(init) == len(X),f"Data and initialization must have the same number of elements but have {len(X)} and {len(init)}."
+                    assert len(init) == len(X), f"Data and initialization must have the same number of elements but have {len(X)} and {len(init)}."
                     assert len(init.shape) == 2, f"Initialization must have 2 dimensions but has {len(init.shape)}."
                 # All embedding parameters will be part of the model. This is
                 # conceptually easy, but limits us to embeddings that fit on the
