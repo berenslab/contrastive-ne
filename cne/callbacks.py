@@ -32,6 +32,8 @@ class Logger(Callback):
         if self.log_embds:
             self.embds = []
             self.Zs = []
+        else:
+            self.embds = None
 
         self.graph = graph.tocoo() if graph is not None else graph
 
@@ -59,22 +61,23 @@ class Logger(Callback):
 
     def __call__(self, epoch, model, negative_samples, loss_mode, log_Z=None, noise_in_estimator=None):
         # read out the embeddings from the model if anything shall be logged
-        if self.log_embds or self.log_norm or self.log_losses or self.log_kl:
-            if isinstance(model, torch.nn.modules.sparse.Embedding):
-                # non-parametric case, just get all embeddings from embedding layer
-                embd = model.weight.detach().cpu().numpy()
-            else:
-                # parametric case, model is Embedding layer + FCNetwork
-                # Just feed indices from self.dl
-                device = model[0].weight.device
-                embd = np.vstack([model(batch[0].to(device))
-                                 .detach().cpu().numpy()
-                                  for batch in self.dl])
-            if log_Z is not None and self.log_embds:
-                self.Zs.append(torch.exp(log_Z).detach().cpu().numpy())
+        if isinstance(model, torch.nn.modules.sparse.Embedding):
+            # non-parametric case, just get all embeddings from embedding layer
+            embd = model.weight.detach().cpu().numpy()
+        else:
+            # parametric case, model is Embedding layer + FCNetwork
+            # Just feed indices from self.dl
+            device = model[0].weight.device
+            embd = np.vstack([model(batch[0].to(device))
+                             .detach().cpu().numpy()
+                              for batch in self.dl])
+        if log_Z is not None and self.log_embds:
+            self.Zs.append(torch.exp(log_Z).detach().cpu().numpy())
 
         if self.log_embds:
             self.embds.append(embd)
+        else:
+            self.embds = [embd]
 
         if self.log_losses:
             if loss_mode == "UMAP":
