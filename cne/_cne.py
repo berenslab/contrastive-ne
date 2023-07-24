@@ -251,6 +251,9 @@ class CNE(object):
                 elif type(init).__module__ == np.__name__:
                     assert len(init) == len(X), f"Data and initialization must have the same number of elements but have {len(X)} and {len(init)}."
                     assert len(init.shape) == 2, f"Initialization must have 2 dimensions but has {len(init.shape)}."
+                    if len(init.shape[1]) != self.embd_dim:
+                        print(f"Warning: Initialization has {init.shape[1]} dimensions but {self.embd_dim} are expected."
+                              f" Will use the initialization's {init.shape[1]} dimensions.")
                 # All embedding parameters will be part of the model. This is
                 # conceptually easy, but limits us to embeddings that fit on the
                 # GPU.
