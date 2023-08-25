@@ -138,7 +138,7 @@ class ContrastiveEmbedding(object):
         :param clamp_high: float Upper value at which arguments to logarithms are clamped. Default "auto" chooses values based on the metric. For metric="euclidean" it is 1.0, for metric="cosine" it is inf.
         :param clamp_low: float Lower value at which arguments to logarithms are clamped. Default "auto" chooses values based on the metric. For metric="euclidean" it is 1e-4, for metric="cosine" it is -inf.
         :param Z: float Initial value for the learned normalization parameter of NCE
-        :param loss_mode: str Specifies which loss to use. Must be one of "umap", "neg", "nce", "infonce", "infonce_alt". "neg_sample" is depricated and defaults to "neg"
+        :param loss_mode: str Specifies which loss to use. Must be one of "umap", "neg", "nce", "infonce", "infonce_alt". "neg_sample" is deprecated and defaults to "neg"
         :param metric: str Specifies which metric to use for computing distances. Must be "cosine" or "euclidean".
         :param optimizer: str Specifies which optimizer to use. Must be "sgd" or "adam"
         :param weight_decay: float Value of weight decay.
