@@ -88,7 +88,7 @@ class ContrastiveEmbedding(object):
     def __init__(
         self,
         model: torch.nn.Module,
-        batch_size=1024,
+        batch_size=2**15,
         negative_samples=5,
         n_epochs=50,
         device="cuda:0",
@@ -96,14 +96,16 @@ class ContrastiveEmbedding(object):
         lr_min_factor=0.1,
         momentum=0.9,
         temperature=0.5,
-        noise_in_estimator=1.0,
+        noise_in_estimator=None,
+        neg_spec=None,
+        ince_spec=None,
         Z_bar=None,
-        s=None,
+        s=1.0,
         eps=1.0,
         clamp_high="auto",
         clamp_low="auto",
         Z=1.0,
-        loss_mode="umap",
+        loss_mode="infonce",
         metric="euclidean",
         optimizer="adam",
         weight_decay=0,
@@ -131,9 +133,11 @@ class ContrastiveEmbedding(object):
         :param lr_min_factor: float Minimal value to which learning rate is annealed
         :param momentum: float Momentum of SGD
         :param temperature: float Temperature used in Cosine similarity
-        :param noise_in_estimator: float Value used in negative sampling's fraction q / (q+ noise_in_estimator), redundant with Z_bar
-        :param Z_bar: float Fixed normalization constant in negative sampling, redundant with noise_in_estimator
-        :param s: float Slider parameter setting the fixed normalization constant, redundant with noise_in_estimator
+        :param noise_in_estimator: float Value used in negative sampling's fraction q / (q+ noise_in_estimator), redundant with Z_bar. Deprecated, use neg_spec instead.
+        :param neg_spec: float Value used in negative sampling's fraction q / (q+ neg_spec). Controls the point on the negative sampling spectrum. Redundant with Z_bar, which has priority.
+        :param ince_spec: float The repulsive term in the InfoNCE loss is multiplied by the inverse of ince_spec. Controls the InfoNCE spectrum. Redundant with s, which has priority.
+        :param Z_bar: float Fixed normalization constant in negative sampling. Controls the negative sampling spectrum. Redundant with s, which has priority.
+        :param s: float Slider parameter for the spectrum of neighbor embeddings. If s=1, the embedding will be similar to a UMAP embedding. If s=0, the embedding will be similar to a t-SNE embedding. Logarithmic inter-/ extrapolation. Works for the loss modes "infonce", "infonce_alt" and "neg".
         :param eps: float Iterpolates between UMAP's implicit similarity (eps = 0) and the Cauchy kernels (eps = 1.0)
         :param clamp_high: float Upper value at which arguments to logarithms are clamped. Default "auto" chooses values based on the metric. For metric="euclidean" it is 1.0, for metric="cosine" it is inf.
         :param clamp_low: float Lower value at which arguments to logarithms are clamped. Default "auto" chooses values based on the metric. For metric="euclidean" it is 1e-4, for metric="cosine" it is -inf.
@@ -189,46 +193,64 @@ class ContrastiveEmbedding(object):
         self.warmup_lr = warmup_lr
         self.log_Z = torch.tensor(np.log(Z), device=self.device)
         # alias for loss mode "neg" to ensure backwards compatibility
-        # since the loss mode is put into the file names, which are featured in the notebooks,
-        # we keep "neg_sample" internally
-        if self.loss_mode == "neg":
-            self.loss_mode = "neg_sample"
+        # still support "neg_sample" since the loss mode is put into the file names, which are featured in the notebooks
+        if self.loss_mode == "neg_sample":
+            self.loss_mode = "neg"
 
         if self.loss_mode == "nce":
             self.log_Z = torch.nn.Parameter(self.log_Z, requires_grad=True)
 
-        if self.loss_mode == "neg_sample":
-            n_specified_params = (noise_in_estimator is not None) + (Z_bar is not None) + (s is not None)
+        if self.loss_mode == "neg":
+            n_specified_params = (noise_in_estimator is not None) + (Z_bar is not None) + (s is not None) + (neg_spec is not None)
             assert (
                 n_specified_params > 0
                 # noise_in_estimator is not None or Z_bar is not None or s is not None
-            ), f"Exactly one of 'noise_in_estimator', 'Z_bar' and 's' must be not None."
+            ), f"Exactly one of 'neg_spec', 'Z_bar', 's', or 'noise_in_estimator' must be not None."
 
             if n_specified_params > 1:
                 print(
-                    "Warning: More than one of 'noise_in_estimator', 'Z_bar' and "
-                    "'s' were specified. 's' will supersede 'Z_bar', which supersedes 'noise_in_estimator'."
+                    "Warning: More than one of 'noise_in_estimator', 'neg_spec', 'Z_bar' and "
+                    "'s' were specified. 's' will supersede 'Z_bar', which supersedes 'neg_spec', which supersedes 'noise_in_estimator'."
+                )
+
+        if self.loss_mode == "infonce" or self.loss_mode == "infonce_alt":
+            n_specified_params = (noise_in_estimator is not None) + (ince_spec is not None) + (s is not None)
+            assert (
+                    n_specified_params > 0
+                # noise_in_estimator is not None or Z_bar is not None or s is not None
+            ), f"Exactly one of 'noise_in_estimator', 'ince_spec' and 's' must be not None."
+
+            if n_specified_params > 1:
+                print(
+                    "Warning: More than one of 'noise_in_estimator', 'ince_spec', and "
+                    "'s' were specified. 's' will supersede 'ince_spec', which supersedes 'noise_in_estimator'."
                 )
 
         # set up clamping values depending on loss mode
-        if clamp_low is "auto":
+        if clamp_low == "auto":
             if self.metric == "euclidean":
                 self.clamp_low = 1e-4
             elif self.metric == "cosine":
                 self.clamp_low = float("-inf")
             else:
                 raise ValueError(f"Unknown metric {self.metric}")
-        if clamp_high is "auto":
+        else:
+            self.clamp_low = clamp_low
+        if clamp_high == "auto":
             if self.metric == "euclidean":
                 self.clamp_high = 1.0
             elif self.metric == "cosine":
                 self.clamp_high = float("inf")
             else:
                 raise ValueError(f"Unknown metric {self.metric}")
+        else:
+            self.clamp_high = clamp_high
 
         self.s = s
         self.Z_bar = Z_bar
-        self.noise_in_estimator = noise_in_estimator
+        self.spec_param = noise_in_estimator
+        self.neg_spec = neg_spec
+        self.ince_spec = ince_spec
 
         # move to correct device at init, esp before registering with the optimizer
         self.model = self.model.to(self.device)
@@ -240,8 +262,8 @@ class ContrastiveEmbedding(object):
         :param n: int Size of the dataset
         :return: self
         """
-        # translate Z_bar into noise_in_estimator
-        if self.loss_mode == "neg_sample":
+        # translate various spectrum parameters to self.spec_param.
+        if self.loss_mode == "neg":
             # if not explicitly passed, use dataset length, only works if DataLoader is over data points, not over similar pairs
             n = len(X) if n is None else n
             if self.s is not None:
@@ -251,11 +273,22 @@ class ContrastiveEmbedding(object):
                 # s = 0 --> z_tsne, s = 1 --> z_umap; using logs for numerical stability
                 self.Z_bar = Z_tsne * np.exp(self.s * (np.log(Z_umap) - np.log(Z_tsne)))
 
-                #print(self.Z_bar)
-
             if self.Z_bar is not None:
                 # assume uniform noise distribution over n**2 many edges
-                self.noise_in_estimator = self.negative_samples * self.Z_bar / n**2
+                self.neg_spec = self.negative_samples * self.Z_bar / n**2
+
+            if self.neg_spec is not None:
+                self.spec_param = self.neg_spec
+
+        elif self.loss_mode == "infonce" or self.loss_mode == "infonce_alt":
+            if self.s is not None:
+                # overwrite self.spec_param, which will be passed to the loss
+                # s=0 --> tsne (self.ince_param=1), s=1 --> umap-like (self.ince_param=4); logarithmic interpolation
+                self.ince_spec = np.exp(self.s*np.log(4.0))
+
+            # for passing to the loss
+            if self.ince_spec is not None:
+                self.spec_param = self.ince_spec
 
         # set up loss
         criterion = ContrastiveLoss(
@@ -263,7 +296,7 @@ class ContrastiveEmbedding(object):
             metric=self.metric,
             temperature=self.temperature,
             loss_mode=self.loss_mode,
-            noise_in_estimator=torch.tensor(self.noise_in_estimator).to(self.device),
+            spec_param=torch.tensor(self.spec_param).to(self.device),
             eps=torch.tensor(self.eps).to(self.device),
             clamp_high=self.clamp_high,
             clamp_low=self.clamp_low,
@@ -392,7 +425,7 @@ class ContrastiveLoss(torch.nn.Module):
         metric="euclidean",
         base_temperature=1,
         eps=1.0,
-        noise_in_estimator=1.0,
+        spec_param=1.0,
         clamp_high=1.0,
         clamp_low=1e-4,
         seed=0,
@@ -404,7 +437,7 @@ class ContrastiveLoss(torch.nn.Module):
         self.loss_mode = loss_mode
         self.metric = metric
         self.base_temperature = base_temperature
-        self.noise_in_estimator = noise_in_estimator
+        self.spec_param = spec_param
         self.eps = eps
         self.clamp_high = clamp_high
         self.clamp_low = clamp_low
@@ -489,12 +522,12 @@ class ContrastiveLoss(torch.nn.Module):
             loss = -(~neigh_mask * torch.log(estimator.clamp(self.clamp_low, self.clamp_high))) - (
                 neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, self.clamp_high))
             )
-        elif self.loss_mode == "neg_sample":
+        elif self.loss_mode == "neg":
             if self.metric == "euclidean":
                 # estimator rewritten for numerical stability as for nce
-                estimator = 1 / (1 + self.noise_in_estimator * (dists + self.eps))
+                estimator = 1 / (1 + self.spec_param * (dists + self.eps))
             else:
-                estimator = probits / (probits + self.noise_in_estimator)
+                estimator = probits / (probits + self.spec_param)
 
             loss = -(~neigh_mask * torch.log(estimator.clamp(self.clamp_low, self.clamp_high))) - (
                 neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, self.clamp_high))
@@ -509,13 +542,14 @@ class ContrastiveLoss(torch.nn.Module):
             # loss from e.g. sohn et al 2016, includes pos similarity in denominator
             loss = -(self.temperature / self.base_temperature) * (
                 (torch.log(probits.clamp(self.clamp_low, self.clamp_high)[~neigh_mask]))
-                - torch.log(probits.clamp(self.clamp_low, self.clamp_high).sum(axis=1))
+                - self.spec_param**(-1) * torch.log(probits.clamp(self.clamp_low, self.clamp_high).sum(axis=1))
             )
         elif self.loss_mode == "infonce_alt":
             # loss simclr
             loss = -(self.temperature / self.base_temperature) * (
                 (torch.log(probits.clamp(self.clamp_low, self.clamp_high)[~neigh_mask]))
-                - torch.log((neigh_mask * probits.clamp(self.clamp_low, self.clamp_high)).sum(axis=1))
+                - self.spec_param**(-1) * torch.log((neigh_mask *
+                                                       probits.clamp(self.clamp_low, self.clamp_high)).sum(axis=1))
             )
         else:
             raise ValueError(f"Unknown loss_mode “{self.loss_mode}”")
