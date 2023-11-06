@@ -103,7 +103,7 @@ class FastTensorDataLoader:
         # manage device
         self.device = "cpu"
         if on_gpu:
-            self.device="cuda"
+            self.device = "cuda"
             tensors = [tensor.to(self.device) for tensor in tensors]
         self.tensors = tensors
 
@@ -173,7 +173,7 @@ class CNE(object):
     def __init__(self,
                  model=None,
                  k=15,
-                 parametric=True,
+                 parametric=False,
                  on_gpu=True,
                  seed=0,
                  loss_aggregation="sum",
