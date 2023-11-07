@@ -1,6 +1,6 @@
-# Contrastive Neighbor Embedding Methods
+# Contrastive Neighbor Embeddings
 
-This repository contains code to create parametric and nonparametric embeddings suitable for data
+Parametric and nonparametric neighbor embeddings suitable for data
 visualization with various contrastive losses. 
 
 Reference:
@@ -42,7 +42,7 @@ are summarized the table below.
 
 The repository can also be used to run  SimCLR[^simclr] experiments, by using the InfoNCE loss.  The main class 
 `ContrastiveEmbedding` allows to change the similarity measure to the exponential of a temperature-scaled cosine 
-similarity (`metric="cosine"`). Its `forward` method accepts a dataloader. If the dataloader implements data augmentation 
+similarity (`metric="cosine"`). Its `forward` method accepts a dataloader. If the dataloader implements data augmentation, 
 one obtains SimCLR. 
 
 ## Installation
@@ -62,7 +62,7 @@ it with CUDA support.
 
 ## Example
 
-The most basic use is via `CNE`. You can create embeddings as follows:
+The most basic usage is via the `CNE` class. Here are some Hello World examples using the MNIST dataset.
 
 ```python
 import cne
@@ -84,7 +84,11 @@ x_test, y_test = mnist_test.data.float().numpy(), mnist_test.targets
 x = np.concatenate([x_train, x_test], axis=0)
 x = x.reshape(x.shape[0], -1)
 y = np.concatenate([y_train, y_test], axis=0)
+```
 
+Here is parametric NCVis (NC-t-SNE) example:
+
+```python
 # parametric NCVis 
 embedder_ncvis = cne.CNE(loss_mode="nce",
                          k=15,
@@ -93,6 +97,19 @@ embedder_ncvis = cne.CNE(loss_mode="nce",
                          print_freq_epoch=10)
 embd_ncvis = embedder_ncvis.fit_transform(x)
 
+# plot 
+plt.figure()
+plt.scatter(*embd_ncvis.T, c=y, alpha=0.5, s=1.0, cmap="tab10", edgecolor="none")
+plt.gca().set_aspect("equal")
+plt.axis("off")
+plt.title("Parametric NCVis of MNIST")
+plt.show()
+```
+<p align="center"><img width="400" alt="Parametric NCVis plot" src="/figures/parametric_ncvis_mnist.png">
+
+Here is non-parametric Neg-t-SNE (very close to UMAP):
+
+```python
 # non-parametric Neg-t-SNE
 embedder_neg = cne.CNE(loss_mode="neg",
                        k=15,
@@ -102,17 +119,6 @@ embedder_neg = cne.CNE(loss_mode="neg",
                        print_freq_epoch=10)
 embd_neg = embedder_neg.fit_transform(x)
 
-# plot embeddings
-plt.figure()
-plt.scatter(*embd_ncvis.T, c=y, alpha=0.5, s=1.0, cmap="tab10", edgecolor="none")
-plt.gca().set_aspect("equal")
-plt.axis("off")
-plt.title("Parametric NCVis of MNIST")
-plt.show()
-```
-<img width="400" alt="Parametric NCVis plot" src="/figures/parametric_ncvis_mnist.png">
-
-```python
 plt.figure()
 plt.scatter(*embd_neg.T, c=y, alpha=0.5, s=1.0, cmap="tab10", edgecolor="none")
 plt.gca().set_aspect("equal")
@@ -120,8 +126,7 @@ plt.axis("off")
 plt.title(r"Neg-$t$-SNE of MNIST")
 plt.show()
 ```
-<img width="400" alt="Neg-t-SNE plot" src="/figures/negtsne_mnist.png">
-
+<p align="center"><img width="400" alt="Neg-t-SNE plot" src="/figures/negtsne_mnist.png">
 
 To compute the spectrum of neighbor embeddings with the negative sampling loss, we can use the following code:
 
@@ -130,7 +135,7 @@ To compute the spectrum of neighbor embeddings with the negative sampling loss, 
 spec_params = [0.0, 0.5, 1.0]
 
 neg_embeddings = {}
-graph = None  # for storing the graph once it has been computed
+graph = None  # for storing the kNN graph once it has been computed
 for s in spec_params:
     embedder = cne.CNE(loss_mode="neg",
                        optimizer="sgd",
@@ -144,7 +149,6 @@ for s in spec_params:
         graph = embedder.neighbor_mat
 
 # plot embeddings
-# plot embeddings
 fig, ax = plt.subplots(1, len(spec_params), figsize=(5.5, 3), constrained_layout=True)
 for i, s in enumerate(spec_params):
     ax[i].scatter(*neg_embeddings[s].T, c=y, alpha=0.5, s=0.1, cmap="tab10", edgecolor="none")
@@ -155,15 +159,14 @@ for i, s in enumerate(spec_params):
 fig.suptitle("Negative sampling spectrum of MNIST")
 plt.show()
 ```
-<img width="400" alt="Neg-t-SNE plot" src="/figures/neg_spectrum_mnist.png">
+<p align="center"><img width="600" alt="Neg-t-SNE spectrum" src="/figures/neg_spectrum_mnist.png">
 
-A similar spectrum can be computed with the InfoNCE loss:
+A similar spectrum can be computed using the InfoNCE loss (note that this is not described in our paper but was implemented after it has been published):
 ```python
 # compute spectrum with InfoNCE loss
 spec_params = [0.0, 0.5, 1.0]
 
 ince_embeddings = {}
-
 for s in spec_params:
     embedder = cne.CNE(loss_mode="infonce",
                        k=15,
@@ -182,17 +185,15 @@ for i, s in enumerate(spec_params):
     ax[i].set_aspect("equal", "datalim")
     ax[i].axis("off")
     ax[i].set_title(f"s={s}")
-    
-
 
 fig.suptitle("InfoNCE spectrum of MNIST")
 plt.show()
 ```
-<img width="400" alt="Neg-t-SNE plot" src="/figures/infonce_spectrum_mnist_m_500.png">
+<p align="center"><img width="600" alt="InfoNC-t-SNE spectrum" src="/figures/infonce_spectrum_mnist_m_500.png">
 
 
 ## Contrastive neighbor embedding spectra
-The `CNE` class also expects an argument `s` which indicates the position of the embedding on a spectrum of embedding, 
+The `CNE` class takes an argument `s` which indicates the position of the embedding on the attraction-repulsion spectrum, 
 where `s=0` corresponds to a t-SNE-like embedding and `s=1` corresponds to a UMAP-like embedding. The spectrum is 
 implemented for the negative sampling loss mode (`loss_mode=neg`) and the InfoNCE loss mode (`loss_mode=infonce`). It
 implements a trade-off between preserving discrete (local) and continuous (global) structure.
@@ -201,18 +202,15 @@ For a more fine-grained control, there are arguments specific to the loss mode. 
 the argument `Z_bar` which directly sets the fixed normalization constant or `neg_spec` which sets the value in the denominator 
 of the negative sampling estimator. Their relation is `Z_bar = m * neg_spec / n**2` where `n` is the sample size and `m` 
 the number of negative samples. The high-level argument `s` corresponds to `Z_bar = 100 * n` for `s=0` and `Z_bar = n**2 / m` 
-for `s=1`.  
-For InfoNCE, the argument `ince_spec` controls the exaggeration of attraction over repulsion. The setting `s=0` corresponds
-to `ince_spec=1` and `s=1` corresponds to `ince_spec=4.0`.
+for `s=1`. Note that `s=1` value is exactly what UMAP uses, whereas `s=1` value is our heuristic that usually approximates t-SNE well.
 
-For all arguments controlling the position on the spectrum, larger values yield to more attraction and thus better global 
+For InfoNCE, the argument `ince_spec` controls the exaggeration of attraction over repulsion. The setting `s=0` corresponds
+to `ince_spec=1` and `s=1` corresponds to `ince_spec=4.0`. Here `s=0` recovers t-SNE value exactly, whereas `s=1` is our heuristic
+that usually approximates UMAP well.
+
+For all input arguments controlling the position on the spectrum, larger values yield more attraction and thus better global 
 structure preservation, while smaller values lead to a focus on the local structure.
 
-Using the negative sampling loss (`loss_mode="neg"`), one can obtain a spectrum of embeddings that includes embeddings
-similar to t-SNE and UMAP. It implements a trade-off between preserving discrete (local) and continuous (global) structure. The 
-optional arguments `Z_bar` and `s` control the location 
-on the spectrum. For both, larger values yield to more attraction and thus better global structure preservation, while 
-smaller values lead to a focus on the local structure. 
 
 
 ## Technical details
@@ -230,7 +228,7 @@ the attractive force between the two points.
 ## Run time analysis
 The run time depends strongly on the training mode (parametric / non-parametric), the device (CPU / GPU) and on the 
 batch size. The plot below illustrates this for the optimization of a Neg-t-SNE embedding of MNIST. Note that the non-parametric
-setting on GPU becomes competitive with the reference implementations of UMAP[^umap] and t-SNE[^tsne].
+setting on GPU becomes competitive with the reference (CPU) implementations of UMAP[^umap] and t-SNE[^tsne].
 
 <img width="600" alt="Run times by batch size" src="/figures/runtime_bs.png">
 
