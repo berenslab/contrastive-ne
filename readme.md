@@ -123,21 +123,94 @@ plt.show()
 <img width="400" alt="Neg-t-SNE plot" src="/figures/negtsne_mnist.png">
 
 
-## Negative sampling spectrum
+To compute the spectrum of neighbor embeddings with the negative sampling loss, we can use the following code:
+
+```python
+# compute spectrum with negative sampling loss
+spec_params = [0.0, 0.5, 1.0]
+
+neg_embeddings = {}
+graph = None  # for storing the graph once it has been computed
+for s in spec_params:
+    embedder = cne.CNE(loss_mode="neg",
+                       optimizer="sgd",
+                       parametric=False,
+                       s=s,
+                       print_freq_epoch=10)
+    embd = embedder.fit_transform(x, graph=graph)
+    neg_embeddings[s] = embd
+
+    if graph is None:
+        graph = embedder.neighbor_mat
+
+# plot embeddings
+# plot embeddings
+fig, ax = plt.subplots(1, len(spec_params), figsize=(5.5, 3), constrained_layout=True)
+for i, s in enumerate(spec_params):
+    ax[i].scatter(*neg_embeddings[s].T, c=y, alpha=0.5, s=0.1, cmap="tab10", edgecolor="none")
+    ax[i].set_aspect("equal", "datalim")
+    ax[i].axis("off")
+    ax[i].set_title(f"s={s}")
+
+fig.suptitle("Negative sampling spectrum of MNIST")
+plt.show()
+```
+<img width="400" alt="Neg-t-SNE plot" src="/figures/negtsne_mnist.png">
+
+A similar spectrum can be computed with the InfoNCE loss:
+```python
+# compute spectrum with InfoNCE loss
+spec_params = [0.0, 0.5, 1.0]
+
+ince_embeddings = {}
+
+for s in spec_params:
+    embedder = cne.CNE(loss_mode="infonce",
+                       k=15,
+                       negative_samples=500,  # higher number of negative samples for higher quality embedding
+                       optimizer="sgd",
+                       parametric=False,
+                       s=s,
+                       print_freq_epoch=100)
+    embd = embedder.fit_transform(x, graph=graph)
+    ince_embeddings[s] = embd
+
+# plot embeddings
+fig, ax = plt.subplots(1, len(spec_params), figsize=(5.5, 3), constrained_layout=True)
+for i, s in enumerate(spec_params):
+    ax[i].scatter(*ince_embeddings[s].T, c=y, alpha=0.5, s=0.1, cmap="tab10", edgecolor="none")
+    ax[i].set_aspect("equal", "datalim")
+    ax[i].axis("off")
+    ax[i].set_title(f"s={s}")
+    
+
+
+fig.suptitle("InfoNCE spectrum of MNIST")
+plt.show()
+```
+
+## Contrastive neighbor embedding spectra
+The `CNE` class also expects an argument `s` which indicates the position of the embedding on a spectrum of embedding, 
+where `s=0` corresponds to a t-SNE-like embedding and `s=1` corresponds to a UMAP-like embedding. The spectrum is 
+implemented for the negative sampling loss mode (`loss_mode=neg`) and the InfoNCE loss mode (`loss_mode=infonce`). It
+implements a trade-off between preserving discrete (local) and continuous (global) structure.
+
+For a more fine-grained control, there are arguments specific to the loss mode. For negative sampling one can specify 
+the argument `Z_bar` which directly sets the fixed normalization constant or `neg_spec` which sets the value in the denominator 
+of the negative sampling estimator. Their relation is `Z_bar = m * neg_spec / n**2` where `n` is the sample size and `m` 
+the number of negative samples. The high-level argument `s` corresponds to `Z_bar = 100 * n` for `s=0` and `Z_bar = n**2 / m` 
+for `s=1`.  
+For InfoNCE, the argument `ince_spec` controls the exaggeration of attraction over repulsion. The setting `s=0` corresponds
+to `ince_spec=1` and `s=1` corresponds to `ince_spec=4.0`.
+
+For all arguments controlling the position on the spectrum, larger values yield to more attraction and thus better global 
+structure preservation, while smaller values lead to a focus on the local structure.
+
 Using the negative sampling loss (`loss_mode="neg"`), one can obtain a spectrum of embeddings that includes embeddings
 similar to t-SNE and UMAP. It implements a trade-off between preserving discrete (local) and continuous (global) structure. The 
 optional arguments `Z_bar` and `s` control the location 
 on the spectrum. For both, larger values yield to more attraction and thus better global structure preservation, while 
 smaller values lead to a focus on the local structure. 
-
-The two parameters differ in their scaling. The hyperparameter `Z_bar` directly sets the 
-fixed normalization constant. This give more direct control, but also requires some knowledge about the suitable range 
-for `Z_bar`. In contrast, the 'slider' hyperparameter `s` is more intuitive. Setting `s=0` yields and embedding with 
-normalization similar to that of t-SNE (the code set `Z_bar = 100 * n` where `n` is the sample size), 
-while setting `s=1` yields an embedding with UMAP's default fixed normalization constant (`Z_bar = n**2 / m` where `m`
-is the number of negative samples). Other values for `s` inter- and extrapolate these two special cases 
-and thus lead to an embedding between
-or beyond t-SNE and UMAP. The default corresponds to `s=1`. If both hyperparameters are set, `s` overrides `Z_bar`.
 
 
 ## Technical details
