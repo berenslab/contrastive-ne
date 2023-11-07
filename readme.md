@@ -155,7 +155,7 @@ for i, s in enumerate(spec_params):
 fig.suptitle("Negative sampling spectrum of MNIST")
 plt.show()
 ```
-<img width="400" alt="Neg-t-SNE plot" src="/figures/negtsne_mnist.png">
+<img width="400" alt="Neg-t-SNE plot" src="/figures/neg_spectrum_mnist.png">
 
 A similar spectrum can be computed with the InfoNCE loss:
 ```python
@@ -188,6 +188,8 @@ for i, s in enumerate(spec_params):
 fig.suptitle("InfoNCE spectrum of MNIST")
 plt.show()
 ```
+<img width="400" alt="Neg-t-SNE plot" src="/figures/infonce_spectrum_mnist_m_500.png">
+
 
 ## Contrastive neighbor embedding spectra
 The `CNE` class also expects an argument `s` which indicates the position of the embedding on a spectrum of embedding, 
