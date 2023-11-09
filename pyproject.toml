@@ -1,6 +1,6 @@
 [project]
 name = "contrastive-ne"
-description = "Contrastive Neighbor Embedding for low-dimensional distance-less embeddings"
+description = "Contrastive Neighbor Embeddings"
 authors = [
     {name = "Niklas Böhm", email = "jan-niklas.boehm@uni-tuebingen.de"},
     {name = "Sebastian Damrich", email = "sebastian.damrich@uni-tuebingen.de"}
@@ -24,9 +24,6 @@ classifiers = [
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
-
-[project.optional-dependencies]
-logging = ["openTSNE"]
 
 [project.urls]
 homepage = "https://github.com/berenslab/contrastive-ne"

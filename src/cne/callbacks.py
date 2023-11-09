@@ -1,4 +1,3 @@
-from openTSNE.callbacks import Callback
 import torch
 import numpy as np
 try:
@@ -8,7 +7,7 @@ try:
 except:
     vis_utils_available = False
 
-class Logger(Callback):
+class Logger():
     """
     Class for logging various quantities of interest during a contrastive neighbor embedding optimization.
     """
@@ -80,14 +79,14 @@ class Logger(Callback):
             self.embds = [embd]
 
         if self.log_losses:
-            if loss_mode == "UMAP":
+            if loss_mode == "umap":
                 self.losses.append(expected_loss_keops(high_sim=self.graph,
                                                        embedding=embd,
                                                        a=1.0,
                                                        b=1.0,
                                                        negative_sample_rate=negative_samples,
                                                        push_tail=True))
-            elif loss_mode == "ncvis":
+            elif loss_mode == "nce":
                 # transform Z since the implemented criterion does not consider the noise distribution explicitly
                 Z_prime = np.exp(log_Z.detach().cpu().numpy())
                 Z_prime = Z_prime * len(embd)**2
@@ -99,7 +98,7 @@ class Logger(Callback):
                                                   b=1.0,
                                                   noise_log_arg=True,
                                                   eps=1e-4))
-            elif loss_mode == "neg_sample":
+            elif loss_mode == "neg":
                 # turn noise_in_estimator back into Z via
                 # Z * m * p_n = 1 <--> Z = 1 / (m * p_n)
                 Z = (negative_samples / len(embd)**2)**-1

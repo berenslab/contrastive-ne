@@ -225,7 +225,6 @@ the kNN graph; the contrastive self-supervised learning approach will transform 
 sample twice and return those as a “positive edge” which will denote
 the attractive force between the two points.
 
-
 ## Run time analysis
 The run time depends strongly on the training mode (parametric / non-parametric), the device (CPU / GPU) and on the 
 batch size. The plot below illustrates this for the optimization of a Neg-t-SNE embedding of MNIST. Note that the non-parametric
@@ -233,6 +232,10 @@ setting on GPU becomes competitive with the reference (CPU) implementations of U
 
 <img width="600" alt="Run times by batch size" src="/figures/runtime_bs.png">
 
+
+## Logging
+There are callbacks for logging the embeddings and losses during training. Note that the loss logging depends on the
+[vis_utils](https://github.com/sdamrich/vis_utils) repository, which needs to be install separately.
 
 [^umap]: McInnes, Leland, John Healy, and James Melville. "UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction." arXiv preprint arXiv:1802.03426 (2018).  
 [^nce]: Gutmann, Michael U., and Aapo Hyvärinen. "Noise-Contrastive Estimation of Unnormalized Statistical Models, with Applications to Natural Image Statistics." Journal of Machine Learning Research 13.2 (2012).  
