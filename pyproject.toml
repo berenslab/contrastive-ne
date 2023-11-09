@@ -5,7 +5,7 @@ authors = [
     {name = "Niklas Böhm", email = "jan-niklas.boehm@uni-tuebingen.de"},
     {name = "Sebastian Damrich", email = "sebastian.damrich@uni-tuebingen.de"}
 ]
-dynamic = ["version"]
+dynamic = ["version",  "readme"]
 dependencies = [
     "numpy>=1.17",
     "scikit-learn>=0.23.2",
@@ -23,6 +23,7 @@ classifiers = [
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
+readme = {file = "README.md"}
 
 [project.optional-dependencies]
 logging = ["openTSNE"]
