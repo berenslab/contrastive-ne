@@ -235,7 +235,7 @@ setting on GPU becomes competitive with the reference (CPU) implementations of U
 
 ## Logging
 There are callbacks for logging the embeddings and losses during training. Note that the loss logging depends on the
-[vis_utils](https://github.com/sdamrich/vis_utils) repository, which needs to be install separately.
+[vis_utils](https://github.com/sdamrich/vis_utils) repository, which needs to be installed separately.
 
 [^umap]: McInnes, Leland, John Healy, and James Melville. "UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction." arXiv preprint arXiv:1802.03426 (2018).  
 [^nce]: Gutmann, Michael U., and Aapo Hyvärinen. "Noise-Contrastive Estimation of Unnormalized Statistical Models, with Applications to Natural Image Statistics." Journal of Machine Learning Research 13.2 (2012).  
