@@ -10,7 +10,7 @@ except:
 
 class Logger(Callback):
     """
-    Class for logging various quantities of interest during an contrastive neighbor embedding optimization.
+    Class for logging various quantities of interest during a contrastive neighbor embedding optimization.
     """
     def __init__(self,
                  log_embds=False,

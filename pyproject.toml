@@ -1,27 +1,40 @@
 [project]
-name = "cne"
-version = "0.1.3"
+name = "contrastive-ne"
 description = "Contrastive Neighbor Embedding for low-dimensional distance-less embeddings"
 authors = [
     {name = "Niklas Böhm", email = "jan-niklas.boehm@uni-tuebingen.de"},
+    {name = "Sebastian Damrich", email = "sebastian.damrich@uni-tuebingen.de"}
 ]
+dynamic = ["version"]
 dependencies = [
-    "torch~=1.10",
-    "numpy>=1.17,<2",
+    "numpy>=1.17",
     "scikit-learn>=0.23.2",
     "annoy",
     "matplotlib",
-    "torchvision"
+    "torchvision",
+    "torch>=1.10"
 ]
-requires-python = ">=3.8,<3.10"
-license = {text = "EUPL"}
+requires-python = ">=3.8,<3.11"
+license = {text = "MIT"}
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[project.optional-dependencies]
+logging = ["openTSNE"]
 
 [project.urls]
-homepage = ""
+homepage = "https://github.com/berenslab/contrastive-ne"
 
-[tool]
-[tool.pdm]
 
 [build-system]
-requires = ["pdm-pep517"]
-build-backend = "pdm.pep517.api"
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
