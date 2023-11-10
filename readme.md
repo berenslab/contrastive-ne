@@ -1,4 +1,8 @@
+![PyPI - Version](https://img.shields.io/pypi/v/contrastive-ne)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 # Contrastive Neighbor Embeddings
+
 
 Parametric and nonparametric neighbor embeddings suitable for data
 visualization with various contrastive losses. 
@@ -46,8 +50,12 @@ similarity (`metric="cosine"`). Its `forward` method accepts a dataloader. If th
 one obtains SimCLR. 
 
 ## Installation
+Pip installation:
+```sh
+pip install contrastive-ne
+```
 
-Clone this repository
+To install from source, clone this repository
 ```sh
 git clone https://github.com/berenslab/contrastive-ne
 cd contrastive-ne
@@ -58,7 +66,7 @@ This installs all dependecies and allows the code to be run.
 Note that pytorch with GPU support can be a bit tricky to install as a
 dependency, so if it is not installed already, it might make
 sense to consult the [pytorch website](https://pytorch.org) to install
-it with CUDA support.
+it with CUDA support prior to the installation of `contrastive-ne`.
 
 ## Example
 

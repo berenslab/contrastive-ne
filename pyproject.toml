@@ -2,8 +2,9 @@
 name = "contrastive-ne"
 description = "Contrastive Neighbor Embeddings"
 authors = [
-    {name = "Niklas Böhm", email = "jan-niklas.boehm@uni-tuebingen.de"},
-    {name = "Sebastian Damrich", email = "sebastian.damrich@uni-tuebingen.de"}
+    {name = "Sebastian Damrich", email = "sebastian.damrich@uni-tuebingen.de"},
+    {name = "Niklas Böhm", email = "jan-niklas.boehm@uni-tuebingen.de"}
+
 ]
 dynamic = ["version"]
 readme = "readme.md"
