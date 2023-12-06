@@ -19,13 +19,23 @@ x = x.reshape(x.shape[0], -1)
 y = np.concatenate([y_train, y_test], axis=0)
 
 
+# non-parametric Neg-t-SNE
+embedder_neg = cne.CNE(loss_mode="neg")
+embd_neg = embedder_neg.fit_transform(x)
+graph = embedder_neg.neighbor_mat  # to avoid the recomputation of the sknn graph below
+
+plt.figure()
+plt.scatter(*embd_neg.T, c=y, alpha=0.5, s=1.0, cmap="tab10", edgecolor="none")
+plt.gca().set_aspect("equal")
+plt.axis("off")
+plt.title(r"Neg-$t$-SNE of MNIST")
+plt.show()
+
 # parametric NCVis
 embedder_ncvis = cne.CNE(loss_mode="nce",
-                         k=15,
                          optimizer="adam",
-                         parametric=True,
-                         print_freq_epoch=10)
-embd_ncvis = embedder_ncvis.fit_transform(x)
+                         parametric=True)
+embd_ncvis = embedder_ncvis.fit_transform(x, graph=graph)
 
 # plot
 plt.figure()
@@ -36,39 +46,15 @@ plt.title("Parametric NCVis of MNIST")
 plt.show()
 
 
-
-# non-parametric Neg-t-SNE
-embedder_neg = cne.CNE(loss_mode="neg",
-                       k=15,
-                       optimizer="sgd",
-                       parametric=False,
-                       print_freq_epoch=10)
-embd_neg = embedder_neg.fit_transform(x)
-
-plt.figure()
-plt.scatter(*embd_neg.T, c=y, alpha=0.5, s=1.0, cmap="tab10", edgecolor="none")
-plt.gca().set_aspect("equal")
-plt.axis("off")
-plt.title(r"Neg-$t$-SNE of MNIST")
-plt.show()
-
-
 # compute spectrum with negative sampling loss
 spec_params = [0.0, 0.5, 1.0]
 
 neg_embeddings = {}
-graph = None  # for storing the kNN graph once it has been computed
 for s in spec_params:
     embedder = cne.CNE(loss_mode="neg",
-                       optimizer="sgd",
-                       parametric=False,
-                       s=s,
-                       print_freq_epoch=10)
+                       s=s)
     embd = embedder.fit_transform(x, graph=graph)
     neg_embeddings[s] = embd
-
-    if graph is None:
-        graph = embedder.neighbor_mat
 
 # plot embeddings
 fig, ax = plt.subplots(1, len(spec_params), figsize=(5.5, 3), constrained_layout=True)
@@ -86,14 +72,11 @@ plt.show()
 spec_params = [0.0, 0.5, 1.0]
 
 ince_embeddings = {}
+
 for s in spec_params:
     embedder = cne.CNE(loss_mode="infonce",
-                       k=15,
-                       negative_samples=500,  # higher number of negative samples for higher quality embedding
-                       optimizer="sgd",
-                       parametric=False,
-                       s=s,
-                       print_freq_epoch=100)
+                       negative_samples=500,
+                       s=s)
     embd = embedder.fit_transform(x, graph=graph)
     ince_embeddings[s] = embd
 

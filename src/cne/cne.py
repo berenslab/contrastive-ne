@@ -90,24 +90,24 @@ class ContrastiveEmbedding(object):
         model: torch.nn.Module,
         batch_size=2**15,
         negative_samples=5,
-        n_epochs=50,
+        n_epochs=200,
         device="cuda:0",
         learning_rate=0.001,
-        lr_min_factor=0.1,
-        momentum=0.9,
+        lr_min_factor=0.0,
+        momentum=0.0,
         temperature=0.5,
         noise_in_estimator=None,
         neg_spec=None,
         ince_spec=None,
         Z_bar=None,
-        s=1.0,
+        s=None,
         eps=1.0,
         clamp_high="auto",
         clamp_low="auto",
         Z=1.0,
         loss_mode="infonce",
         metric="euclidean",
-        optimizer="adam",
+        optimizer="sgd",
         weight_decay=0,
         anneal_lr="none",
         lr_decay_rate=0.1,
@@ -115,13 +115,14 @@ class ContrastiveEmbedding(object):
         clip_grad=True,
         save_freq=25,
         callback=None,
-        print_freq_epoch=None,
+        print_freq_epoch="auto",
         print_freq_in_epoch=None,
         seed=0,
-        loss_aggregation="mean",
+        loss_aggregation="sum",
         force_resample=None,
         warmup_epochs=0,
         warmup_lr=0,
+        early_exaggeration=True
     ):
         """
         :param model: torch.nn.Module Embedding model (embedding layer for non-parametric, neural network for parametric)
@@ -159,6 +160,7 @@ class ContrastiveEmbedding(object):
         :param force_resample: bool or None If True, negative sample indices are resampled every batch. If None, they are resampled every epoch.
         :param warmup_epochs: int Number of epochs for linearly warming up the learning rate
         :param warmup_lr: float Starting learning rate to warm up from.
+        :param early_exaggeration: bool Whether to use the first third of the optimization in the s=1 regime. Only affects loss modes "infonce" and "neg".
         """
         self.model: torch.nn.Module = model
         self.batch_size: int = batch_size
@@ -183,7 +185,11 @@ class ContrastiveEmbedding(object):
         self.clip_grad: bool = clip_grad
         self.save_freq: int = save_freq
         self.callback = callback
-        self.print_freq_epoch = print_freq_epoch
+
+        if print_freq_epoch == "auto":
+            self.print_freq_epoch = self.n_epochs // 5
+        else:
+            self.print_freq_epoch = print_freq_epoch
         self.print_freq_in_epoch = print_freq_in_epoch
         self.eps = eps
         self.seed = seed
@@ -199,13 +205,12 @@ class ContrastiveEmbedding(object):
 
         if self.loss_mode == "nce":
             self.log_Z = torch.nn.Parameter(self.log_Z, requires_grad=True)
+            early_exaggeration = False
 
         if self.loss_mode == "neg":
             n_specified_params = (noise_in_estimator is not None) + (Z_bar is not None) + (s is not None) + (neg_spec is not None)
-            assert (
-                n_specified_params > 0
-                # noise_in_estimator is not None or Z_bar is not None or s is not None
-            ), f"Exactly one of 'neg_spec', 'Z_bar', 's', or 'noise_in_estimator' must be not None."
+            if n_specified_params == 0:
+                s = 1.0  # default for neg is umap
 
             if n_specified_params > 1:
                 print(
@@ -215,10 +220,8 @@ class ContrastiveEmbedding(object):
 
         if self.loss_mode == "infonce" or self.loss_mode == "infonce_alt":
             n_specified_params = (noise_in_estimator is not None) + (ince_spec is not None) + (s is not None)
-            assert (
-                    n_specified_params > 0
-                # noise_in_estimator is not None or Z_bar is not None or s is not None
-            ), f"Exactly one of 'noise_in_estimator', 'ince_spec' and 's' must be not None."
+            if n_specified_params == 0:
+                s = 0.0  # default for infonce is tsne
 
             if n_specified_params > 1:
                 print(
@@ -252,9 +255,59 @@ class ContrastiveEmbedding(object):
         self.neg_spec = neg_spec
         self.ince_spec = ince_spec
 
+        self.early_exaggeration = early_exaggeration
+
+        if self.early_exaggeration:
+            if (self.loss_mode not in  ["infonce", "neg"]):
+                print("Warning: Early exaggeration is only supported for loss modes 'infonce' and 'neg'.")
+
         # move to correct device at init, esp before registering with the optimizer
         self.model = self.model.to(self.device)
 
+    def process_spec_param(self, n=None, X=None, s=None, Z_bar=None, neg_spec=None, ince_spec=None, overwrite=False):
+        s = self.s if s is None else s
+        Z_bar = self.Z_bar if Z_bar is None else Z_bar
+        neg_spec = self.neg_spec if neg_spec is None else neg_spec
+        ince_spec = self.ince_spec if ince_spec is None else ince_spec
+
+        spec_param = 0.0  # just to set default in case it does not matter, e.g., for nce
+
+        assert n is not None or X is not None, "Either n or X must be passed to process_spec_param"
+        if self.loss_mode == "neg":
+            # if not explicitly passed, use dataset length, only works if DataLoader is over data points, not over similar pairs
+            n = len(X) if n is None else n
+            if s is not None:
+                # overwrite self.Z_bar
+                Z_umap = n ** 2 / self.negative_samples
+                Z_tsne = 100 * n
+                # s = 0 --> z_tsne, s = 1 --> z_umap; using logs for numerical stability
+                Z_bar = Z_tsne * np.exp(s * (np.log(Z_umap) - np.log(Z_tsne)))
+
+            if Z_bar is not None:
+                # assume uniform noise distribution over n**2 many edges
+                neg_spec = self.negative_samples * Z_bar / n ** 2
+
+            if neg_spec is not None:
+                spec_param = neg_spec
+
+        elif self.loss_mode == "infonce" or self.loss_mode == "infonce_alt":
+            if s is not None:
+                # overwrite self.spec_param, which will be passed to the loss
+                # s=0 --> tsne (self.ince_param=1), s=1 --> umap-like (self.ince_param=4); logarithmic interpolation
+                ince_spec = np.exp(s * np.log(4.0))
+
+            # for passing to the loss
+            if ince_spec is not None:
+                spec_param = ince_spec
+
+        if overwrite:
+            self.spec_param = spec_param
+            self.s = s
+            self.Z_bar = Z_bar
+            self.neg_spec = neg_spec
+            self.ince_spec = ince_spec
+
+        return spec_param
     def fit(self, X: torch.utils.data.DataLoader, n: int = None):
         """
         Train the model
@@ -263,32 +316,7 @@ class ContrastiveEmbedding(object):
         :return: self
         """
         # translate various spectrum parameters to self.spec_param.
-        if self.loss_mode == "neg":
-            # if not explicitly passed, use dataset length, only works if DataLoader is over data points, not over similar pairs
-            n = len(X) if n is None else n
-            if self.s is not None:
-                # overwrite self.Z_bar
-                Z_umap = n**2 / self.negative_samples
-                Z_tsne = 100 * n
-                # s = 0 --> z_tsne, s = 1 --> z_umap; using logs for numerical stability
-                self.Z_bar = Z_tsne * np.exp(self.s * (np.log(Z_umap) - np.log(Z_tsne)))
-
-            if self.Z_bar is not None:
-                # assume uniform noise distribution over n**2 many edges
-                self.neg_spec = self.negative_samples * self.Z_bar / n**2
-
-            if self.neg_spec is not None:
-                self.spec_param = self.neg_spec
-
-        elif self.loss_mode == "infonce" or self.loss_mode == "infonce_alt":
-            if self.s is not None:
-                # overwrite self.spec_param, which will be passed to the loss
-                # s=0 --> tsne (self.ince_param=1), s=1 --> umap-like (self.ince_param=4); logarithmic interpolation
-                self.ince_spec = np.exp(self.s*np.log(4.0))
-
-            # for passing to the loss
-            if self.ince_spec is not None:
-                self.spec_param = self.ince_spec
+        self.process_spec_param(n=n, X=X, overwrite=True)
 
         # set up loss
         criterion = ContrastiveLoss(
@@ -352,12 +380,24 @@ class ContrastiveEmbedding(object):
             "reserved_bytes.all.peak": [],
             "reserved_bytes.all.allocated": [],
         }
+        if self.early_exaggeration:
+            s_early = max(self.s, 1.0) if self.s is not None else 1.0
+            spec_param_early = self.process_spec_param(n=n, X=X, s=s_early)
+
 
         # training
         for epoch in range(self.n_epochs):
             if "cuda" in self.device:
                 info = torch.cuda.memory_stats(self.device)
                 [mem_dict[k].append(info[k]) for k in mem_dict.keys()]
+
+            # select the correctly exaggerated spectrum parameter for this epoch
+            if self.early_exaggeration and self.s is not None and epoch < self.n_epochs // 3:
+                cur_spec_param = spec_param_early
+            else:
+                cur_spec_param = self.spec_param
+            # update the spec param in the loss
+            criterion.spec_param = torch.tensor(cur_spec_param).to(self.device)
 
             # anneal learning rate
             lr = new_lr(
@@ -646,3 +686,5 @@ def make_neighbor_indices(batch_size, negative_samples, device=None):
     )
 
     return neigh_inds
+
+

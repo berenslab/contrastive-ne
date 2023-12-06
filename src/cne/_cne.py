@@ -176,7 +176,6 @@ class CNE(object):
                  parametric=False,
                  on_gpu=True,
                  seed=0,
-                 loss_aggregation="sum",
                  anneal_lr=True,
                  embd_dim=2,
                  **kwargs):
@@ -186,7 +185,6 @@ class CNE(object):
         :param parametric: bool If True and model=None uses a parametric embedding model
         :param on_gpu: bool Load whole dataset to GPU
         :param seed: int Random seed
-        :param loss_aggregation: str If 'mean' uses mean aggregation of loss over batch, if 'sum' uses sum.
         :param anneal_lr: bool If True anneal the learning rate linearly.
         :param kwargs:
         """
@@ -196,7 +194,6 @@ class CNE(object):
         self.on_gpu = on_gpu
         self.kwargs = kwargs
         self.seed = seed
-        self.loss_aggregation = loss_aggregation
         self.anneal_lr = anneal_lr
         self.embd_dim = embd_dim
 
@@ -268,7 +265,6 @@ class CNE(object):
         # Load embedding engine
         self.cne = ContrastiveEmbedding(self.model,
                                         seed=self.seed,
-                                        loss_aggregation=self.loss_aggregation,
                                         anneal_lr=self.anneal_lr,
                                         **self.kwargs)
 
