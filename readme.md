@@ -205,7 +205,10 @@ that usually approximates UMAP well.
 For all input arguments controlling the position on the spectrum, larger values yield more attraction and thus better global 
 structure preservation, while smaller values lead to a focus on the local structure.
 
-
+## Early exaggeration
+Similar to early exaggeration in t-SNE the loss modes `neg` and `infonce` use early exaggeration by default. To disable
+it pass `early_exaggeration=False` to the `CNE` class. If used, the first third of the optimization epochs use the setting `s=1.0`
+unless a higher value `s` is specified. This is to ensure that the embedding is initialized with a good global structure. 
 
 ## Technical details
 
