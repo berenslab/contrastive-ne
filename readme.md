@@ -89,37 +89,36 @@ mnist_test = torchvision.datasets.MNIST(train=False,
                                         transform=None)
 x_test, y_test = mnist_test.data.float().numpy(), mnist_test.targets
 
+x_train = x_train.reshape(x_train.shape[0], -1)
+x_test = x_test.reshape(x_test.shape[0], -1)
+
 x = np.concatenate([x_train, x_test], axis=0)
-x = x.reshape(x.shape[0], -1)
 y = np.concatenate([y_train, y_test], axis=0)
 ```
 
-Here is parametric NCVis (NC-t-SNE) example:
+By default, `CNE` uses the InfoNCE loss and thus approximates t-SNE:
 
 ```python
-# parametric NCVis
-embedder_ncvis = cne.CNE(loss_mode="nce",
-                         optimizer="adam",
-                         parametric=True)
-embd_ncvis = embedder_ncvis.fit_transform(x)
-graph = embedder_ncvis.neighbor_mat  # to avoid the recomputation of the sknn graph below
+# default CNE (using the InfoNCE loss)
+embedder = cne.CNE()
+embd = embedder.fit_transform(x)
 
-# plot
 plt.figure()
-plt.scatter(*embd_ncvis.T, c=y, alpha=0.5, s=1.0, cmap="tab10", edgecolor="none")
+plt.scatter(*embd.T, c=y, alpha=0.5, s=1.0, cmap="tab10", edgecolor="none")
 plt.gca().set_aspect("equal")
 plt.axis("off")
-plt.title("Parametric NCVis of MNIST")
+plt.title(r"InfoNCE of MNIST")
 plt.show()
 ```
-<p align="center"><img width="400" alt="Parametric NCVis plot" src="/figures/parametric_ncvis_mnist.png">
 
-Here is non-parametric Neg-t-SNE (very close to UMAP):
+<p align="center"><img width="400" alt="InfoNCE plot" src="/figures/default_mnist.png">
+
+To get non-parametric Neg-t-SNE (very close to UMAP) use `loss_mode="neg"`:
 
 ```python
 # non-parametric Neg-t-SNE
 embedder_neg = cne.CNE(loss_mode="neg")
-embd_neg = embedder_neg.fit_transform(x, graph=graph)
+embd_neg = embedder_neg.fit_transform(x)
 
 plt.figure()
 plt.scatter(*embd_neg.T, c=y, alpha=0.5, s=1.0, cmap="tab10", edgecolor="none")
@@ -129,6 +128,33 @@ plt.title(r"Neg-$t$-SNE of MNIST")
 plt.show()
 ```
 <p align="center"><img width="400" alt="Neg-t-SNE plot" src="/figures/negtsne_mnist.png">
+
+Here is a parametric NCVis (NC-t-SNE) example, highlighting that new embedding points can be added with a parametric embedding:
+
+```python
+# parametric NCVis, highlighting the embedding of new points
+embedder_ncvis = cne.CNE(loss_mode="nce",
+                         optimizer="adam",
+                         parametric=True)
+embd_ncvis_train = embedder_ncvis.fit_transform(x_train)  # only train with training set
+embd_ncvis_test = embedder_ncvis.transform(x_test)  # transform test set with the trained model
+
+# plot
+titles = ["Train", "Test"]
+fig, ax = plt.subplots(1, 2, figsize=(5.5, 2.5), constrained_layout=True)
+ax[0].scatter(*embd_ncvis_train.T, c=y_train, alpha=0.5, s=1.0, cmap="tab10", edgecolor="none")
+ax[1].scatter(*embd_ncvis_test.T, c=y_test, alpha=0.5, s=1.0, cmap="tab10", edgecolor="none")
+
+for i in range(2):
+    ax[i].set_title(titles[i])
+    ax[i].set_aspect("equal", "datalim")
+    ax[i].axis("off")
+
+fig.suptitle("Parametric NCVis of MNIST")
+plt.show()
+```
+<p align="center"><img width="400" alt="Parametric NCVis plot" src="/figures/parametric_ncvis_mnist.png">
+
 
 To compute the spectrum of neighbor embeddings with the negative sampling loss, we can use the following code:
 
@@ -140,7 +166,7 @@ neg_embeddings = {}
 for s in spec_params:
     embedder = cne.CNE(loss_mode="neg",
                        s=s)
-    embd = embedder.fit_transform(x, graph=graph)
+    embd = embedder.fit_transform(x)
     neg_embeddings[s] = embd
 
 # plot embeddings
@@ -157,18 +183,17 @@ plt.show()
 
 <p align="center"><img width="600" alt="Neg-t-SNE spectrum" src="/figures/neg_spectrum_mnist.png">
 
-A similar spectrum can be computed using the InfoNCE loss (note that this is not described in our paper but was implemented after it has been published):
+A similar spectrum can be computed using the InfoNCE loss (note that this is not described in our paper but was
+implemented after it has been published). Using a higher number of negative samples leads to better local structure:
 ```python
 # compute spectrum with InfoNCE loss
 spec_params = [0.0, 0.5, 1.0]
 
 ince_embeddings = {}
-
 for s in spec_params:
-    embedder = cne.CNE(loss_mode="infonce",
-                       negative_samples=500,
+    embedder = cne.CNE(negative_samples=500,  # more negative samples for better local quality
                        s=s)
-    embd = embedder.fit_transform(x, graph=graph)
+    embd = embedder.fit_transform(x)
     ince_embeddings[s] = embd
 
 # plot embeddings

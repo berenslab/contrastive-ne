@@ -183,7 +183,7 @@ class CNE(object):
         :param model: Embedding model
         :param k: int Number of nearest neighbors
         :param parametric: bool If True and model=None uses a parametric embedding model
-        :param on_gpu: bool Load whole dataset to GPU
+        :param on_gpu: bool Load whole dataset to GPU and try to use pykeops for kNN graph if possible
         :param seed: int Random seed
         :param anneal_lr: bool If True anneal the learning rate linearly.
         :param kwargs:
@@ -201,9 +201,9 @@ class CNE(object):
     def fit_transform(self, X, init=None, graph=None):
         "Fit the model, then transform."
         self.fit(X, init=init, graph=graph)
-        return self.transform(X)
+        return self.transform(X, fit_transform=True)
 
-    def transform(self, X):
+    def transform(self, X, fit_transform=False):
         "Transform a dataset using the fitted model."
         if self.parametric:
             X = X.reshape(X.shape[0], -1)
@@ -222,14 +222,15 @@ class CNE(object):
             embd = self.model.weight.detach().cpu().numpy()
             if isinstance(X, int):
                 embd = embd[X]
-            elif isinstance(X, np.array) and len(np.squeeze(X).shape) == 1:
+            elif isinstance(X, np.ndarray) and len(np.squeeze(X).shape) == 1:
                 if X.dtype == int:
                     embd = embd[np.squeeze(X)]
             elif isinstance(X, list) and np.all([isinstance(x, int) for x in X]):
                 embd = embd[X]
             else:
-                print("Warning: A non-parametric model cannot transform new data. Returning the embedding of the training data. "
-                      "Pass an integer (or a list / np.array thereof) to obtain the corresponding training embeddings")
+                if not fit_transform:
+                    print("Warning: A non-parametric model cannot transform new data. Returning the embedding of the training data. "
+                          "Pass an integer (or a list / np.array thereof) to obtain the corresponding training embeddings")
         return embd
 
     def fit(self, X, init=None, graph=None):
@@ -278,21 +279,57 @@ class CNE(object):
 
         # compute the similarity graph with annoy if none is given
         if graph is None:
-            # create approximate NN search tree
-            print("Computing approximate kNN graph")
-            self.annoy = AnnoyIndex(in_dim, "euclidean")
-            [self.annoy.add_item(i, x) for i, x in enumerate(X)]
-            self.annoy.build(50)
+            # select annoy or pykeops depending on on_gpu and availability of pykeops
+            if self.on_gpu:
+                try:
+                    import pykeops
+                    graph = "pykeops"
+                except ImportError:
+                    graph = "annoy"
+            else:
+                graph = "annoy"
 
-            # construct the adjacency matrix for the graph
-            adj = lil_matrix((X.shape[0], X.shape[0]))
-            for i in range(X.shape[0]):
-                neighs_, _ = self.annoy.get_nns_by_item(i, self.k + 1, include_distances=True)
-                neighs = neighs_[1:]
-                adj[i, neighs] = 1
-                adj[neighs, i] = 1  # symmetrize on the fly
+        if isinstance(graph, str):
+            if graph == "annoy":
+                print("Computing approximate kNN graph with annoy")
+                # create approximate NN search tree
+                self.annoy = AnnoyIndex(in_dim, "euclidean")
+                [self.annoy.add_item(i, x) for i, x in enumerate(X)]
+                self.annoy.build(50)
 
-            self.neighbor_mat = adj.tocsr()
+                # construct the adjacency matrix for the graph
+                adj = lil_matrix((X.shape[0], X.shape[0]))
+                for i in range(X.shape[0]):
+                    neighs_, _ = self.annoy.get_nns_by_item(i, self.k + 1, include_distances=True)
+                    neighs = neighs_[1:]
+                    adj[i, neighs] = 1
+                    adj[neighs, i] = 1  # symmetrize on the fly
+
+                self.neighbor_mat = adj.tocsr()
+            elif graph == "pykeops":
+                print("Computing approximate kNN graph with pykeops")
+                from pykeops.torch import LazyTensor
+                import scipy.sparse
+
+                # set up pykeops LazyTensors
+                x_cuda = torch.tensor(X).to("cuda").contiguous()
+                x_i = LazyTensor(x_cuda[:, None])
+                x_j = LazyTensor(x_cuda[None])
+
+                # compute distance and knn_idx with keops
+                dists = ((x_i - x_j) ** 2).sum(-1)
+                knn_idx = dists.argKmin(K=self.k + 1, dim=0)[:, 1:].cpu().numpy().flatten()
+
+                # construct the adjacency matrix for the graph
+                knn_graph = scipy.sparse.coo_matrix((np.ones(len(X) * self.k),
+                                                     (np.repeat(np.arange(X.shape[0]), self.k),
+                                                      knn_idx)),
+                                                    shape=(len(X), len(X)))
+
+                # symmetrize on the fly
+                self.neighbor_mat = knn_graph.maximum(knn_graph.transpose()).tocsr()
+            else:
+                raise ValueError("When passing a string as graph it must be 'annoy' or 'pykeops'")
         else:
             self.neighbor_mat = graph.tocsr()
 
