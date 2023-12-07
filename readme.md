@@ -96,7 +96,7 @@ x = np.concatenate([x_train, x_test], axis=0)
 y = np.concatenate([y_train, y_test], axis=0)
 ```
 
-By default, `CNE` uses the InfoNCE loss and thus approximates t-SNE:
+By default, `CNE` uses the InfoNCE loss and thus approximates $t$-SNE (one can increase the number of negative samples, e.g. `negative_samples=500` to get a better approximation, see also below):
 
 ```python
 # default CNE (using the InfoNCE loss)
@@ -107,7 +107,7 @@ plt.figure()
 plt.scatter(*embd.T, c=y, alpha=0.5, s=1.0, cmap="tab10", edgecolor="none")
 plt.gca().set_aspect("equal")
 plt.axis("off")
-plt.title(r"InfoNCE of MNIST")
+plt.title(r"InfoNC-$t$-SNE of MNIST")
 plt.show()
 ```
 
@@ -134,7 +134,7 @@ Here is a parametric NCVis (NC-t-SNE) example, highlighting that new embedding p
 ```python
 # parametric NCVis, highlighting the embedding of new points
 embedder_ncvis = cne.CNE(loss_mode="nce",
-                         optimizer="adam",
+                         optimizer="adam",  # Adam tends to work better than SGD for parametric runs
                          parametric=True)
 embd_ncvis_train = embedder_ncvis.fit_transform(x_train)  # only train with training set
 embd_ncvis_test = embedder_ncvis.transform(x_test)  # transform test set with the trained model
@@ -153,7 +153,7 @@ for i in range(2):
 fig.suptitle("Parametric NCVis of MNIST")
 plt.show()
 ```
-<p align="center"><img width="800" alt="Parametric NCVis plot" src="/figures/parametric_ncvis_mnist.png">
+<p align="center"><img width="600" alt="Parametric NCVis plot" src="/figures/parametric_ncvis_mnist.png">
 
 
 To compute the spectrum of neighbor embeddings with the negative sampling loss, we can use the following code:
