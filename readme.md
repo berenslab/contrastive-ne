@@ -153,7 +153,7 @@ for i in range(2):
 fig.suptitle("Parametric NCVis of MNIST")
 plt.show()
 ```
-<p align="center"><img width="400" alt="Parametric NCVis plot" src="/figures/parametric_ncvis_mnist.png">
+<p align="center"><img width="800" alt="Parametric NCVis plot" src="/figures/parametric_ncvis_mnist.png">
 
 
 To compute the spectrum of neighbor embeddings with the negative sampling loss, we can use the following code:
