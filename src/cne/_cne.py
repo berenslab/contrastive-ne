@@ -220,8 +220,16 @@ class CNE(object):
                             for batch in self.dl_unshuf])
         else:
             embd = self.model.weight.detach().cpu().numpy()
-
-
+            if isinstance(X, int):
+                embd = embd[X]
+            elif isinstance(X, np.array) and len(np.squeeze(X).shape) == 1:
+                if X.dtype == int:
+                    embd = embd[np.squeeze(X)]
+            elif isinstance(X, list) and np.all([isinstance(x, int) for x in X]):
+                embd = embd[X]
+            else:
+                print("Warning: A non-parametric model cannot transform new data. Returning the embedding of the training data. "
+                      "Pass an integer (or a list / np.array thereof) to obtain the corresponding training embeddings")
         return embd
 
     def fit(self, X, init=None, graph=None):
