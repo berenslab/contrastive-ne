@@ -234,7 +234,17 @@ class CNE(object):
         return embd
 
     def fit(self, X, init=None, graph=None):
-        "Fit the model."
+        """
+        Fit the model
+        :param X: np.array Dataset
+        :param init: np.array Initial embedding. If None, use PCA rescaled so that first PC has standard deviation 1.
+        :param graph: graph encoding similarity. If None, a kNN graph will be computed. By default, this is done with pykeops,
+         unless on_gpu=False, in which case annoy is used. Passing "annoy" or "pykeops" forces to use this library for
+         the kNN graph computation. Pykeops requires a GPU but is much faster. Alternatively, any scipy.sparse.csr_matrix
+         can be passed.
+        :return:
+        """
+
         start_time = time.time()
         X = X.reshape(X.shape[0], -1)
         in_dim = X.shape[1]
