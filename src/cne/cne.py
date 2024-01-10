@@ -31,7 +31,6 @@ def train(
     """
     model.train()
     losses = []
-
     for idx, (item, neigh) in enumerate(train_loader):
         print_now = print_freq is not None and (idx + 1) % print_freq == 0
         start = time.time()
@@ -116,7 +115,7 @@ class ContrastiveEmbedding(object):
         save_freq=25,
         callback=None,
         print_freq_epoch="auto",
-        print_freq_in_epoch=None,
+        print_freq_iteration=None,
         seed=0,
         loss_aggregation="sum",
         force_resample=None,
@@ -154,7 +153,7 @@ class ContrastiveEmbedding(object):
         :param save_freq: int Frequency in epochs of calling callback.
         :param callback: callable Callback to call before first and every save_freq epochs.
         :param print_freq_epoch: int Epoch progress is printed every print_freq_epoch epoch
-        :param print_freq_in_epoch: int Losses are printed every print_freq_in_epoch batch per epoch
+        :param print_freq_iteration: int Losses are printed every print_freq_iteration batch per epoch
         :param seed: int Random seed
         :param loss_aggregation: str Specifies how to aggregate loss over a batch. Must be "sum" or "mean".
         :param force_resample: bool or None If True, negative sample indices are resampled every batch. If None, they are resampled every epoch.
@@ -198,7 +197,7 @@ class ContrastiveEmbedding(object):
             self.print_freq_epoch = self.n_epochs // 5
         else:
             self.print_freq_epoch = print_freq_epoch
-        self.print_freq_in_epoch = print_freq_in_epoch
+        self.print_freq_iteration = print_freq_iteration
         self.eps = eps
         self.seed = seed
         self.loss_aggregation = loss_aggregation
@@ -432,7 +431,7 @@ class ContrastiveEmbedding(object):
                 optimizer,
                 epoch,
                 clip_grad=self.clip_grad,
-                print_freq=self.print_freq_in_epoch,
+                print_freq=self.print_freq_iteration,
                 force_resample=self.force_resample,
             )
             batch_losses.append(bl)
@@ -449,7 +448,7 @@ class ContrastiveEmbedding(object):
                 )
             # print epoch progress
             if self.print_freq_epoch is not None and epoch % self.print_freq_epoch == 0:
-                print(f"Finished epoch {epoch}/{self.n_epochs}", file=sys.stderr)
+                print(f"Finished epoch {epoch}/{self.n_epochs}, loss {sum(bl)/ len(bl):.3f}", file=sys.stderr)
 
         self.losses = batch_losses
         self.mem_dict = mem_dict
