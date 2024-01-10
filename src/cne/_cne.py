@@ -80,7 +80,7 @@ class FastTensorDataLoader:
     TensorDataset + DataLoader because dataloader grabs individual indices of
     the dataset and calls cat (slow).
     """
-    def __init__(self, neighbor_mat, batch_size=1024, shuffle=False, on_gpu=False, drop_last=False, seed=0):
+    def __init__(self, neighbor_mat, batch_size=1024, shuffle=False, data_on_gpu=False, drop_last=False, seed=0):
         """
         Initialize a FastTensorDataLoader.
 
@@ -88,7 +88,7 @@ class FastTensorDataLoader:
         :param batch_size: batch size to load.
         :param shuffle: if True, shuffle the data *in-place* whenever an
             iterator is created out of this object.
-        :param on_gpu: If True, the dataset is loaded on GPU as a whole.
+        :param data_on_gpu: If True, the dataset is loaded on GPU as a whole.
         :param drop_last: Drop the last batch if it is smaller than the others.
         :param seed: Random seed
 
@@ -101,10 +101,11 @@ class FastTensorDataLoader:
         assert all(t.shape[0] == tensors[0].shape[0] for t in tensors)
 
         # manage device
-        self.device = "cpu"
-        if on_gpu:
+        if data_on_gpu:
             self.device = "cuda"
             tensors = [tensor.to(self.device) for tensor in tensors]
+        else:
+            self.device = "cpu"
         self.tensors = tensors
 
         self.dataset_len = self.tensors[0].shape[0]
@@ -174,7 +175,7 @@ class CNE(object):
                  model=None,
                  k=15,
                  parametric=False,
-                 on_gpu=True,
+                 data_on_gpu="auto",
                  seed=0,
                  anneal_lr=True,
                  embd_dim=2,
@@ -183,7 +184,7 @@ class CNE(object):
         :param model: Embedding model
         :param k: int Number of nearest neighbors
         :param parametric: bool If True and model=None uses a parametric embedding model
-        :param on_gpu: bool Load whole dataset to GPU and try to use pykeops for kNN graph if possible
+        :param data_on_gpu: bool or "auto" Load whole dataset to GPU and try to use pykeops for kNN graph if possible.
         :param seed: int Random seed
         :param anneal_lr: bool If True anneal the learning rate linearly.
         :param kwargs:
@@ -191,7 +192,7 @@ class CNE(object):
         self.model = model
         self.k = k
         self.parametric = parametric
-        self.on_gpu = on_gpu
+        self.data_on_gpu = data_on_gpu
         self.kwargs = kwargs
         self.seed = seed
         self.anneal_lr = anneal_lr
@@ -238,13 +239,12 @@ class CNE(object):
         Fit the model
         :param X: np.array Dataset
         :param init: np.array Initial embedding. If None, use PCA rescaled so that first PC has standard deviation 1.
-        :param graph: graph encoding similarity. If None, a kNN graph will be computed. By default, this is done with pykeops,
-         unless on_gpu=False, in which case annoy is used. Passing "annoy" or "pykeops" forces to use this library for
+        :param graph: graph encoding similarity. If None, a kNN graph will be computed. This is done with pykeops if the
+        ContrastiveEmbedding instance is on GPU, otherwise annoy is used. Passing "annoy" or "pykeops" forces to use this library for
          the kNN graph computation. Pykeops requires a GPU but is much faster. Alternatively, any scipy.sparse.csr_matrix
          can be passed.
         :return:
         """
-
         start_time = time.time()
         X = X.reshape(X.shape[0], -1)
         in_dim = X.shape[1]
@@ -287,10 +287,10 @@ class CNE(object):
                                         anneal_lr=self.anneal_lr,
                                         **self.kwargs)
 
-        # compute the similarity graph with annoy if none is given
+        # is no graph is passed, compute the similarity graph with pykeops is cuda is available and otherwise annoy
         if graph is None:
-            # select annoy or pykeops depending on on_gpu and availability of pykeops
-            if self.on_gpu:
+            # select annoy or pykeops depending on data_on_gpu and availability of pykeops
+            if self.cne.device == "cuda":
                 try:
                     import pykeops
                     graph = "pykeops"
@@ -343,12 +343,21 @@ class CNE(object):
         else:
             self.neighbor_mat = graph.tocsr()
 
+        if self.data_on_gpu == "auto":
+            self.data_on_gpu = self.cne.device == "cuda"
+        if self.data_on_gpu and self.cne.device == "cpu":
+            print("Warning: Data is on GPU but the model is on CPU. This will be unnecessarily slow.")
+
         # create data loader
         self.dataloader = FastTensorDataLoader(self.neighbor_mat,
                                                shuffle=True,
                                                batch_size=self.cne.batch_size,
-                                               on_gpu=self.on_gpu,
+                                               data_on_gpu=self.data_on_gpu,
                                                seed=self.seed)
+
+        print(f"data_on_gpu: {self.data_on_gpu}")
+        print(f"device: {self.cne.device}")
+
         # fit the model
         self.cne.fit(self.dataloader, len(X))
         end_time = time.time()

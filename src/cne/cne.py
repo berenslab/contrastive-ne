@@ -91,7 +91,7 @@ class ContrastiveEmbedding(object):
         batch_size=2**15,
         negative_samples=5,
         n_epochs=200,
-        device="cuda:0",
+        device="auto",
         learning_rate=0.001,
         lr_min_factor=0.0,
         momentum=0.0,
@@ -129,7 +129,7 @@ class ContrastiveEmbedding(object):
         :param batch_size: int Batch size
         :param negative_samples: int Number of negative samples per positive sample
         :param n_epochs: int Number of optimization epochs
-        :param device: torch.device Device of optimization
+        :param device: torch.device or "auto" Device of optimization. If auto, cuda is used if available.
         :param learning_rate: float Learning rate
         :param lr_min_factor: float Minimal value to which learning rate is annealed
         :param momentum: float Momentum of SGD
@@ -166,6 +166,14 @@ class ContrastiveEmbedding(object):
         self.batch_size: int = batch_size
         self.negative_samples: int = negative_samples
         self.n_epochs: int = n_epochs
+
+
+        if device == "auto":
+            cuda_available = torch.cuda.is_available()
+            if cuda_available:
+                device = "cuda"
+            else:
+                device = "cpu"
         self.device = device
         self.learning_rate = learning_rate
         self.momentum = momentum
