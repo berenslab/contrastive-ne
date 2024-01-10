@@ -204,15 +204,18 @@ class ContrastiveEmbedding(object):
         self.force_resample = force_resample
         self.warmup_epochs = warmup_epochs
         self.warmup_lr = warmup_lr
-        self.log_Z = torch.tensor(np.log(Z), device=self.device)
+
         # alias for loss mode "neg" to ensure backwards compatibility
         # still support "neg_sample" since the loss mode is put into the file names, which are featured in the notebooks
         if self.loss_mode == "neg_sample":
             self.loss_mode = "neg"
 
         if self.loss_mode == "nce":
+            self.log_Z = torch.tensor(np.log(Z), device=self.device)
             self.log_Z = torch.nn.Parameter(self.log_Z, requires_grad=True)
             early_exaggeration = False
+        else:
+            self.log_Z = None
 
         if self.loss_mode == "neg":
             n_specified_params = (noise_in_estimator is not None) + (Z_bar is not None) + (s is not None) + (neg_spec is not None)
@@ -315,6 +318,39 @@ class ContrastiveEmbedding(object):
             self.ince_spec = ince_spec
 
         return spec_param
+
+    def setup_optimizer(self):
+        """
+        Set up the optimizer
+        :return
+        """
+        params = [{"params": self.model.parameters()}]
+        if self.loss_mode == "nce":
+            params += [
+                {"params": self.log_Z, "lr": 0.001}
+            ]  # make sure log_Z always has a sufficiently small lr
+
+        if self.optimizer == "sgd":
+            optimizer = torch.optim.SGD(
+                params,
+                lr=self.learning_rate,
+                momentum=self.momentum,
+                weight_decay=self.weight_decay,
+            )
+        elif self.optimizer == "adam":
+            optimizer = torch.optim.Adam(
+                params,
+                weight_decay=self.weight_decay,
+                lr=self.learning_rate,
+            )
+        else:
+            raise ValueError(
+                f"Only optimizer 'adam' and 'sgd' allowed, but is {self.optimizer}."
+            )
+        return optimizer
+
+
+
     def fit(self, X: torch.utils.data.DataLoader, n: int = None):
         """
         Train the model
@@ -340,29 +376,7 @@ class ContrastiveEmbedding(object):
         )
 
         # set up optimizer
-        params = [{"params": self.model.parameters()}]
-        if self.loss_mode == "nce":
-            params += [
-                {"params": self.log_Z, "lr": 0.001}
-            ]  # make sure log_Z always has a sufficiently small lr
-
-        if self.optimizer == "sgd":
-            optimizer = torch.optim.SGD(
-                params,
-                lr=self.learning_rate,
-                momentum=self.momentum,
-                weight_decay=self.weight_decay,
-            )
-        elif self.optimizer == "adam":
-            optimizer = torch.optim.Adam(
-                params,
-                weight_decay=self.weight_decay,
-                lr=self.learning_rate,
-            )
-        else:
-            raise ValueError(
-                f"Only optimizer 'adam' and 'sgd' allowed, but is {self.optimizer}."
-            )
+        optimizer = self.setup_optimizer()
 
         # initial callback
         if (
@@ -403,8 +417,13 @@ class ContrastiveEmbedding(object):
                 cur_spec_param = spec_param_early
             else:
                 cur_spec_param = self.spec_param
+
             # update the spec param in the loss
             criterion.spec_param = torch.tensor(cur_spec_param).to(self.device)
+
+            # first time after early exaggeration, reset the optimizer if it is adam
+            #if self.early_exaggeration and epoch == self.n_epochs // 3 and self.optimizer == "adam":
+            #    optimizer = self.setup_optimizer()
 
             # anneal learning rate
             lr = new_lr(

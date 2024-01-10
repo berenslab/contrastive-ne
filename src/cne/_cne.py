@@ -251,7 +251,7 @@ class CNE(object):
         # set up model if not given
         if self.model is None:
             if self.parametric:
-                self.embd_layer = torch.nn.Embedding.from_pretrained(torch.tensor(X),
+                self.embd_layer = torch.nn.Embedding.from_pretrained(torch.tensor(X).to(torch.float32),
                                                                      freeze=True)
                 self.network = FCNetwork(in_dim, feat_dim=self.embd_dim)
                 self.model = torch.nn.Sequential(
@@ -354,9 +354,6 @@ class CNE(object):
                                                batch_size=self.cne.batch_size,
                                                data_on_gpu=self.data_on_gpu,
                                                seed=self.seed)
-
-        print(f"data_on_gpu: {self.data_on_gpu}")
-        print(f"device: {self.cne.device}")
 
         # fit the model
         self.cne.fit(self.dataloader, len(X))
