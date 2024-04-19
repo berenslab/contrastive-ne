@@ -58,7 +58,7 @@ class Logger():
                                                   batch_size=256,
                                                   shuffle=False)
 
-    def __call__(self, epoch, model, negative_samples, loss_mode, log_Z=None, noise_in_estimator=None):
+    def __call__(self, epoch, model, negative_samples, loss_mode, log_Z=None, neg_spec=None):
         # read out the embeddings from the model if anything shall be logged
         if isinstance(model, torch.nn.modules.sparse.Embedding):
             # non-parametric case, just get all embeddings from embedding layer
@@ -99,9 +99,11 @@ class Logger():
                                                   noise_log_arg=True,
                                                   eps=1e-4))
             elif loss_mode == "neg":
-                # turn noise_in_estimator back into Z via
-                # Z * m * p_n = 1 <--> Z = 1 / (m * p_n)
-                Z = (negative_samples / len(embd)**2)**-1
+                # turn neg_spec back into Z via
+                # Z * m * p_n = neg_spec <--> Z = neg_spec / (m * p_n)
+                if neg_spec is None:
+                    neg_spec = 1.0
+                Z = neg_spec / (negative_samples / len(embd)**2)
                 self.losses.append(NCE_loss_keops(high_sim=self.graph,
                                                   embedding=embd,
                                                   m=negative_samples,
