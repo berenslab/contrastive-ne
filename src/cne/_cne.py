@@ -317,7 +317,7 @@ class CNE(object):
 
                 self.neighbor_mat = adj.tocsr()
             elif graph == "pykeops":
-                print("Computing approximate kNN graph with pykeops")
+                print("Computing exact kNN graph with pykeops")
                 from pykeops.torch import LazyTensor
                 import scipy.sparse
 
