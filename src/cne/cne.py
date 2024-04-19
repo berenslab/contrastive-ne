@@ -137,7 +137,7 @@ class ContrastiveEmbedding(object):
         :param neg_spec: float Value used in negative sampling's fraction q / (q+ neg_spec). Controls the point on the negative sampling spectrum. Redundant with Z_bar, which has priority.
         :param ince_spec: float The repulsive term in the InfoNCE loss is multiplied by the inverse of ince_spec. Controls the InfoNCE spectrum. Redundant with s, which has priority.
         :param Z_bar: float Fixed normalization constant in negative sampling. Controls the negative sampling spectrum. Redundant with s, which has priority.
-        :param s: float Slider parameter for the spectrum of neighbor embeddings. If s=1, the embedding will be similar to a UMAP embedding. If s=0, the embedding will be similar to a t-SNE embedding. Logarithmic inter-/ extrapolation. Works for the loss modes "infonce", "infonce_alt" and "neg".
+        :param s: float Spectrum parameter for the spectrum of neighbor embeddings. If s=1, the embedding will be similar to a UMAP embedding (independent of the number of negative samples, unlike in the ICLR paper). If s=0, the embedding will be similar to a t-SNE embedding. Logarithmic inter-/ extrapolation. Works for the loss modes "infonce", "infonce_alt" and "neg".
         :param eps: float Iterpolates between UMAP's implicit similarity (eps = 0) and the Cauchy kernels (eps = 1.0)
         :param clamp_high: float Upper value at which arguments to logarithms are clamped. Default "auto" chooses values based on the metric. For metric="euclidean" it is 1.0, for metric="cosine" it is inf.
         :param clamp_low: float Lower value at which arguments to logarithms are clamped. Default "auto" chooses values based on the metric. For metric="euclidean" it is 1e-4, for metric="cosine" it is -inf.
@@ -220,7 +220,9 @@ class ContrastiveEmbedding(object):
         if self.loss_mode == "neg":
             n_specified_params = (noise_in_estimator is not None) + (Z_bar is not None) + (s is not None) + (neg_spec is not None)
             if n_specified_params == 0:
-                s = 1.0  # default for neg is umap
+                # This will produce UMAP like embds for 5 negative samples and shift along the spectrum as the number
+                # of negative samples changes, like in the ICLR paper.
+                neg_spec = 1.0
 
             if n_specified_params > 1:
                 print(
@@ -288,7 +290,7 @@ class ContrastiveEmbedding(object):
             n = len(X) if n is None else n
             if s is not None:
                 # overwrite self.Z_bar
-                Z_umap = n ** 2 / self.negative_samples
+                Z_umap = n ** 2 / 5  # UMAP uses 5 negative samples by default
                 Z_tsne = 100 * n
                 # s = 0 --> z_tsne, s = 1 --> z_umap; using logs for numerical stability
                 Z_bar = Z_tsne * np.exp(s * (np.log(Z_umap) - np.log(Z_tsne)))
@@ -390,6 +392,7 @@ class ContrastiveEmbedding(object):
                 self.negative_samples,
                 self.loss_mode,
                 self.log_Z,
+                self.neg_spec
             )
 
         batch_losses = []
@@ -463,7 +466,7 @@ class ContrastiveEmbedding(object):
                 and callable(self.callback)
             ):
                 self.callback(
-                    epoch, self.model, self.negative_samples, self.loss_mode, self.log_Z
+                    epoch, self.model, self.negative_samples, self.loss_mode, self.log_Z, self.neg_spec
                 )
             # print epoch progress
             if self.print_freq_epoch is not None and epoch % self.print_freq_epoch == 0:
