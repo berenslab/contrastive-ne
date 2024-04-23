@@ -132,13 +132,16 @@ class FastTensorDataLoader:
         return self
 
     def __next__(self):
-        if self.i > self.dataset_len - self.batch_size:
+        if (self.i > self.dataset_len - self.batch_size and self.drop_last) or self.i >= self.dataset_len:
             raise StopIteration
+
+        start = self.i
+        end = np.minimum(self.i + self.batch_size, self.dataset_len)
         if self.indices is not None:
-            indices = self.indices[self.i:self.i+self.batch_size]
+            indices = self.indices[start:end]
             batch = tuple(torch.index_select(t, 0, indices) for t in self.tensors)
         else:
-            batch = tuple(t[self.i:self.i+self.batch_size] for t in self.tensors)
+            batch = tuple(t[start:end] for t in self.tensors)
         self.i += self.batch_size
         return batch
 
