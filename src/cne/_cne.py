@@ -108,27 +108,27 @@ class FastTensorDataLoader:
             self.device = "cpu"
         self.tensors = tensors
 
-        self.dataset_len = self.tensors[0].shape[0]
-        self.batch_size = batch_size
+        self.dataset_len = torch.tensor(self.tensors[0].shape[0], device=self.device)
+        self.batch_size = torch.tensor(batch_size, dtype=int).to(self.device)
+
         self.shuffle = shuffle
         self.drop_last = drop_last
         self.seed = seed
         torch.manual_seed(self.seed)
 
         # Calculate number of  batches
-        n_batches, remainder = divmod(self.dataset_len, self.batch_size)
+        n_batches = torch.div(self.dataset_len, self.batch_size, rounding_mode="floor")
+        remainder = torch.remainder(self.dataset_len, self.batch_size)
         if remainder > 0 and not self.drop_last:
             n_batches += 1
         self.n_batches = n_batches
-
-        self.batch_size = torch.tensor(self.batch_size, dtype=int).to(self.device)
 
     def __iter__(self):
         if self.shuffle:
             self.indices = torch.randperm(self.dataset_len, device=self.device)
         else:
             self.indices = None
-        self.i = 0
+        self.i = torch.tensor(0, device=self.device)
         return self
 
     def __next__(self):
@@ -136,7 +136,7 @@ class FastTensorDataLoader:
             raise StopIteration
 
         start = self.i
-        end = np.minimum(self.i + self.batch_size, self.dataset_len)
+        end = torch.minimum(self.i + self.batch_size, self.dataset_len)
         if self.indices is not None:
             indices = self.indices[start:end]
             batch = tuple(torch.index_select(t, 0, indices) for t in self.tensors)
@@ -179,6 +179,7 @@ class CNE(object):
                  k=15,
                  parametric=False,
                  data_on_gpu="auto",
+                 use_keops=None,
                  seed=0,
                  anneal_lr=True,
                  embd_dim=2,
@@ -188,6 +189,8 @@ class CNE(object):
         :param k: int Number of nearest neighbors
         :param parametric: bool If True and model=None uses a parametric embedding model
         :param data_on_gpu: bool or "auto" Load whole dataset to GPU and try to use pykeops for kNN graph if possible.
+        :param use_keops: bool If True use pykeops for kNN graph computation. If False use annoy. Supercedes the kNN
+        graph selection by data_on_gpu if not None.
         :param seed: int Random seed
         :param anneal_lr: bool If True anneal the learning rate linearly.
         :param kwargs:
@@ -196,6 +199,7 @@ class CNE(object):
         self.k = k
         self.parametric = parametric
         self.data_on_gpu = data_on_gpu
+        self.use_keops = use_keops
         self.kwargs = kwargs
         self.seed = seed
         self.anneal_lr = anneal_lr
@@ -293,14 +297,18 @@ class CNE(object):
         # is no graph is passed, compute the similarity graph with pykeops is cuda is available and otherwise annoy
         if graph is None:
             # select annoy or pykeops depending on data_on_gpu and availability of pykeops
-            if self.cne.device == "cuda":
-                try:
-                    import pykeops
-                    graph = "pykeops"
-                except ImportError:
+            if self.use_keops is None:
+                if self.cne.device == "cuda":
+                    try:
+                        import pykeops
+                        graph = "pykeops"
+                    except ImportError:
+                        graph = "annoy"
+                else:
                     graph = "annoy"
             else:
-                graph = "annoy"
+                graph = "pykeops" if self.use_keops else "annoy"
+
 
         if isinstance(graph, str):
             if graph == "annoy":
