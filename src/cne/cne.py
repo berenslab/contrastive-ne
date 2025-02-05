@@ -126,7 +126,7 @@ class ContrastiveEmbedding(object):
         """
         :param model: torch.nn.Module Embedding model (embedding layer for non-parametric, neural network for parametric)
         :param batch_size: int Batch size
-        :param negative_samples: int Number of negative samples per positive sample
+        :param negative_samples: int Number of negative samples per positive sample. If -1 or greater than 2*batch_size-2, then the whole batch is used as negative samples (i.e. 2*batch_size-2) negative samples. Note that -1 can lead to high vram usage if batch size is also high. For about 10GB set batch_size <= 2**13 for negative_samples=-1.
         :param n_epochs: int Number of optimization epochs
         :param device: torch.device or "auto" Device of optimization. If auto, cuda is used if available.
         :param learning_rate: float Learning rate
@@ -194,7 +194,7 @@ class ContrastiveEmbedding(object):
         self.callback = callback
 
         if print_freq_epoch == "auto":
-            self.print_freq_epoch = self.n_epochs // 5
+            self.print_freq_epoch = np.maximum(self.n_epochs // 5, 1)
         else:
             self.print_freq_epoch = print_freq_epoch
         self.print_freq_iteration = print_freq_iteration
@@ -690,13 +690,13 @@ def make_neighbor_indices(batch_size, negative_samples, device=None):
     """
     b = batch_size
 
-    if negative_samples < 2 * b - 2:
-        # uniform probability for all points in the minibatch,
+    if negative_samples < 2 * b - 2 and not negative_samples < 0:
+        # uniform probability for all points in the minibatch, save the head of the positive pair,
         # we sample points for repulsion randomly
         neg_inds = torch.randint(0, 2 * b - 1, (b, negative_samples), device=device)
         neg_inds += (torch.arange(1, b + 1, device=device) - 2 * b)[:, None]
     else:
-        # full batch repulsion
+        # full batch repulsion, all points save those of the positive pair are used as negative samples
         all_inds1 = torch.repeat_interleave(
             torch.arange(b, device=device)[None, :], b, dim=0
         )
