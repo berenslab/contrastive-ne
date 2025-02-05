@@ -31,6 +31,7 @@ class Logger():
         if self.log_embds:
             self.embds = []
             self.Zs = []
+            self.temps = []
         else:
             self.embds = None
 
@@ -58,7 +59,7 @@ class Logger():
                                                   batch_size=256,
                                                   shuffle=False)
 
-    def __call__(self, epoch, model, negative_samples, loss_mode, log_Z=None, neg_spec=None):
+    def __call__(self, epoch, model, negative_samples, loss_mode, log_Z=None, log_temp=None, neg_spec=None):
         # read out the embeddings from the model if anything shall be logged
         if isinstance(model, torch.nn.modules.sparse.Embedding):
             # non-parametric case, just get all embeddings from embedding layer
@@ -72,6 +73,9 @@ class Logger():
                               for batch in self.dl])
         if log_Z is not None and self.log_embds:
             self.Zs.append(torch.exp(log_Z).detach().cpu().numpy())
+
+        if log_temp is not None and self.log_embds:
+            self.temps.append(torch.exp(log_temp).detach().cpu().numpy())
 
         if self.log_embds:
             self.embds.append(embd)

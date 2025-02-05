@@ -9,6 +9,7 @@ def train(
     train_loader,
     model,
     log_Z,
+    log_temp,
     criterion,
     optimizer,
     epoch,
@@ -21,6 +22,7 @@ def train(
     :param train_loader: DataLoader Returns batches of similar tuples
     :param model: torch.nn.Module Embedding layer (non-parametric) or neural network (parametric)
     :param log_Z: torch.tensor Float containing the logarithm of the learnable Z
+    :param log_temp: torch.tensor Float containing the logarithm of the learnable temperature. If temperature is not learnable, this is None.
     :param criterion: torch.nn.Module Computes the loss
     :param optimizer:  torch.optim.Optimizer
     :param epoch: int Current training epoch
@@ -44,7 +46,7 @@ def train(
         if print_now:
             features.retain_grad()  # to print model agnostic grad statistics
         force_resample = force_resample if force_resample is not None else idx == 0
-        loss = criterion(features, log_Z, force_resample=force_resample)
+        loss = criterion(features, log_Z, log_temp, force_resample=force_resample)
 
         # update metric
         losses.append(loss.item())
@@ -56,6 +58,8 @@ def train(
             torch.nn.utils.clip_grad_value_(model.parameters(), 4)
             if log_Z is not None:
                 torch.nn.utils.clip_grad_value_(log_Z, 4)
+            if log_temp is not None:
+                torch.nn.utils.clip_grad_value_(log_temp, 4)
         optimizer.step()
 
         # print info
@@ -95,6 +99,7 @@ class ContrastiveEmbedding(object):
         lr_min_factor=0.0,
         momentum=0.0,
         temperature=0.5,
+        learn_temp=False,
         noise_in_estimator=None,
         neg_spec=None,
         ince_spec=None,
@@ -133,6 +138,7 @@ class ContrastiveEmbedding(object):
         :param lr_min_factor: float Minimal value to which learning rate is annealed
         :param momentum: float Momentum of SGD
         :param temperature: float Temperature used in Cosine similarity
+        :param learn_temp: bool Whether to learn the temperature. If True, the value for temperature is used as initial value.
         :param noise_in_estimator: float Value used in negative sampling's fraction q / (q+ noise_in_estimator), redundant with Z_bar. Deprecated, use neg_spec instead.
         :param neg_spec: float Value used in negative sampling's fraction q / (q+ neg_spec). Controls the point on the negative sampling spectrum. Redundant with Z_bar, which has priority.
         :param ince_spec: float The repulsive term in the InfoNCE loss is multiplied by the inverse of ince_spec. Controls the InfoNCE spectrum. Redundant with s, which has priority.
@@ -176,7 +182,12 @@ class ContrastiveEmbedding(object):
         self.device = device
         self.learning_rate = learning_rate
         self.momentum = momentum
-        self.temperature = temperature
+        self.temperature = torch.tensor(temperature, device=self.device)
+        self.learn_temp = learn_temp
+        self.log_temp = None
+        if self.learn_temp:
+            self.log_temp = torch.tensor(np.log(temperature), device=self.device)
+            self.log_temp = torch.nn.Parameter(self.log_temp, requires_grad=True)
         self.loss_mode: str = loss_mode
         self.metric: str = metric
         self.optimizer = optimizer
@@ -331,7 +342,10 @@ class ContrastiveEmbedding(object):
             params += [
                 {"params": self.log_Z, "lr": 0.001}
             ]  # make sure log_Z always has a sufficiently small lr
-
+        if self.learn_temp:
+            params += [
+                {"params": self.log_temp, "lr": 0.001} # choose same small lr as for log_Z
+            ]
         if self.optimizer == "sgd":
             optimizer = torch.optim.SGD(
                 params,
@@ -392,6 +406,7 @@ class ContrastiveEmbedding(object):
                 self.negative_samples,
                 self.loss_mode,
                 self.log_Z,
+                self.log_temp,
                 self.neg_spec
             )
 
@@ -449,6 +464,7 @@ class ContrastiveEmbedding(object):
                 X,
                 self.model,
                 self.log_Z,
+                self.log_temp,
                 criterion,
                 optimizer,
                 epoch,
@@ -466,7 +482,7 @@ class ContrastiveEmbedding(object):
                 and callable(self.callback)
             ):
                 self.callback(
-                    epoch, self.model, self.negative_samples, self.loss_mode, self.log_Z, self.neg_spec
+                    epoch, self.model, self.negative_samples, self.loss_mode, self.log_Z, self.log_temp, self.neg_spec
                 )
             # print epoch progress
             if self.print_freq_epoch is not None and epoch % self.print_freq_epoch == 0:
@@ -489,9 +505,9 @@ class ContrastiveLoss(torch.nn.Module):
     def __init__(
         self,
         negative_samples=5,
-        temperature=0.07,
         loss_mode="all",
         metric="euclidean",
+        temperature=0.05,
         base_temperature=1,
         eps=1.0,
         spec_param=1.0,
@@ -502,9 +518,9 @@ class ContrastiveLoss(torch.nn.Module):
     ):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
-        self.temperature = temperature
         self.loss_mode = loss_mode
         self.metric = metric
+        self.temperature = temperature
         self.base_temperature = base_temperature
         self.spec_param = spec_param
         self.eps = eps
@@ -515,7 +531,7 @@ class ContrastiveLoss(torch.nn.Module):
         self.neigh_inds = None
         self.loss_aggregation = loss_aggregation
 
-    def forward(self, features, log_Z=None, force_resample=False):
+    def forward(self, features, log_Z=None, log_temp=None, force_resample=False):
         """Compute loss for model. SimCLR unsupervised loss:
         https://arxiv.org/pdf/2002.05709.pdf
 
@@ -530,6 +546,9 @@ class ContrastiveLoss(torch.nn.Module):
         batch_size = features.shape[0] // 2
         b = batch_size
 
+        # use the learnable temperature if not None
+        temperature = torch.exp(log_temp) if log_temp is not None else self.temperature
+
         # We can at most sample this many samples from the batch.
         # `b` can be lower than `self.negative_samples` in the last batch.
         negative_samples = min(self.negative_samples, 2 * b - 1)
@@ -539,10 +558,6 @@ class ContrastiveLoss(torch.nn.Module):
                 batch_size, negative_samples, device=features.device
             )
             self.neigh_inds = neigh_inds
-        # # untested logic to accomodate for last batch
-        # elif self.neigh_inds.shape[0] != batch_size:
-        #     neigh_inds = make_neighbor_indices(batch_size, negative_samples)
-        #     # don't save this one
         else:
             neigh_inds = self.neigh_inds
         neighbors = features[neigh_inds]
@@ -556,18 +571,16 @@ class ContrastiveLoss(torch.nn.Module):
 
         # compute probits
         if self.metric == "euclidean":
-            dists = ((origs[:, None] - neighbors) ** 2).sum(axis=2)
+            sq_dists = ((origs[:, None] - neighbors) ** 2).sum(axis=2)
             # Cauchy affinities
-            probits = torch.div(1, self.eps + dists)
+            probits = torch.div(1, self.eps + sq_dists)
         elif self.metric == "cosine":
             norm = torch.nn.functional.normalize
             o = norm(origs.unsqueeze(1), dim=2)
             n = norm(neighbors.transpose(1, 2), dim=1)
-            logits = torch.bmm(o, n).squeeze() / self.temperature
-            # logits_max, _ = logits.max(dim=1, keepdim=True)
-            # logits -= logits_max.detach()
-            # logits -= logits.max().detach()
+            logits = torch.bmm(o, n).squeeze() / temperature.clamp(0.02, None)  # bound temp from below to avoid overflow
             probits = torch.exp(logits)
+
         else:
             raise ValueError(f"Unknown metric “{self.metric}”")
 
@@ -582,19 +595,18 @@ class ContrastiveLoss(torch.nn.Module):
                 # estimator is (cauchy / Z) / ( cauchy / Z + neg samples)). For numerical
                 # stability rewrite to 1 / ( 1 + (d**2 + eps) * Z * m)
                 estimator = 1 / (
-                    1 + (dists + self.eps) * torch.exp(log_Z) * negative_samples
+                    1 + (sq_dists + self.eps) * torch.exp(log_Z) * negative_samples
                 )
             else:
-                probits = probits / torch.exp(log_Z)
+                probits = torch.exp(probits.log()-log_Z)  # numerically stable
                 estimator = probits / (probits + negative_samples)
-
             loss = -(~neigh_mask * torch.log(estimator.clamp(self.clamp_low, self.clamp_high))) - (
                 neigh_mask * torch.log((1 - estimator).clamp(self.clamp_low, self.clamp_high))
             )
         elif self.loss_mode == "neg":
             if self.metric == "euclidean":
                 # estimator rewritten for numerical stability as for nce
-                estimator = 1 / (1 + self.spec_param * (dists + self.eps))
+                estimator = 1 / (1 + self.spec_param * (sq_dists + self.eps))
             else:
                 estimator = probits / (probits + self.spec_param)
 
