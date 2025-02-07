@@ -131,7 +131,7 @@ class ContrastiveEmbedding(object):
         """
         :param model: torch.nn.Module Embedding model (embedding layer for non-parametric, neural network for parametric)
         :param batch_size: int Batch size
-        :param negative_samples: int Number of negative samples per positive sample. If -1 or greater than 2*batch_size-2, then the whole batch is used as negative samples (i.e. 2*batch_size-2) negative samples. Note that -1 can lead to high vram usage if batch size is also high. For about 10GB set batch_size <= 2**13 for negative_samples=-1.
+        :param negative_samples: int or str Number of negative samples per positive sample. If -1 or greater than 2*batch_size-2 or 'full-batch', then the whole batch is used as negative samples (i.e. 2*batch_size-2 negative samples). Note that -1 can lead to high vram usage if batch size is also high. For about 10GB set batch_size <= 2**13 for negative_samples=-1.
         :param n_epochs: int Number of optimization epochs
         :param device: torch.device or "auto" Device of optimization. If auto, cuda is used if available.
         :param learning_rate: float Learning rate
@@ -169,7 +169,26 @@ class ContrastiveEmbedding(object):
         """
         self.model: torch.nn.Module = model
         self.batch_size: int = batch_size
-        self.negative_samples: int = negative_samples
+        self.negative_samples = negative_samples
+        if isinstance(self.negative_samples, str):
+            if self.negative_samples == "full-batch":
+                self.negative_samples = 2 * self.batch_size - 2
+            else:
+                raise ValueError(
+                    f"negative_samples must be an int >=-1 or 'full-batch', but is {self.negative_samples}"
+                )
+        elif isinstance(self.negative_samples, int):
+            if self.negative_samples == -1:
+                self.negative_samples = 2 * self.batch_size - 2
+            else:
+                assert self.negative_samples >= 0, f"negative_samples must be an int >= -1 or 'full-batch' but is {self.negative_samples}"
+        else:
+            raise ValueError(
+                f"negative_samples must be an int >= -1 or 'full-batch', but is {self.negative_samples}"
+            )
+
+
+
         self.n_epochs: int = n_epochs
 
 
@@ -551,7 +570,7 @@ class ContrastiveLoss(torch.nn.Module):
 
         # We can at most sample this many samples from the batch.
         # `b` can be lower than `self.negative_samples` in the last batch.
-        negative_samples = min(self.negative_samples, 2 * b - 1)
+        negative_samples = min(self.negative_samples, 2 * b - 2)
 
         if force_resample or self.neigh_inds is None:
             neigh_inds = make_neighbor_indices(
@@ -702,7 +721,7 @@ def make_neighbor_indices(batch_size, negative_samples, device=None):
     """
     b = batch_size
 
-    if negative_samples < 2 * b - 2 and not negative_samples < 0:
+    if negative_samples < 2 * b - 2:
         # uniform probability for all points in the minibatch, save the head of the positive pair,
         # we sample points for repulsion randomly
         neg_inds = torch.randint(0, 2 * b - 1, (b, negative_samples), device=device)
