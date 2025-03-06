@@ -579,7 +579,6 @@ class ContrastiveLoss(torch.nn.Module):
             self.neigh_inds = neigh_inds
         else:
             neigh_inds = self.neigh_inds
-        neighbors = features[neigh_inds]
 
         # `neigh_mask` indicates which samples feel attractive force
         # and which ones repel each other
@@ -588,20 +587,47 @@ class ContrastiveLoss(torch.nn.Module):
 
         origs = features[:b]
 
-        # compute probits
-        if self.metric == "euclidean":
-            sq_dists = ((origs[:, None] - neighbors) ** 2).sum(axis=2)
-            # Cauchy affinities
-            probits = torch.div(1, self.eps + sq_dists)
-        elif self.metric == "cosine":
-            norm = torch.nn.functional.normalize
-            o = norm(origs.unsqueeze(1), dim=2)
-            n = norm(neighbors.transpose(1, 2), dim=1)
-            logits = torch.bmm(o, n).squeeze() / temperature.clamp(0.02, None)  # bound temp from below to avoid overflow
-            probits = torch.exp(logits)
+        if negative_samples * features.shape[1] < b:
+            # peak memormy usage b*negative_sapmles*features.shape[1]
+
+            neighbors = features[neigh_inds]
+
+            # compute probits
+            if self.metric == "euclidean":
+                sq_dists = ((origs[:, None] - neighbors) ** 2).sum(axis=2)
+                # Cauchy affinities
+                probits = torch.div(1, self.eps + sq_dists)
+            elif self.metric == "cosine":
+                norm = torch.nn.functional.normalize
+                o = norm(origs.unsqueeze(1), dim=2)
+                n = norm(neighbors.transpose(1, 2), dim=1)
+                logits = torch.bmm(o, n).squeeze() / temperature.clamp(0.02, None)  # bound temp from below to avoid overflow
+                probits = torch.exp(logits)
+            else:
+                raise ValueError(f"Unknown metric “{self.metric}”")
 
         else:
-            raise ValueError(f"Unknown metric “{self.metric}”")
+            # peak memory usage b*b
+            # compute all interactions first
+
+            batch_indices = torch.arange(b, device=features.device).unsqueeze(1).expand(-1, negative_samples+1) # +1 because of positive tail
+
+            if self.metric == "euclidean":
+                all_sq_dists = ((features[:, None] - features) ** 2).sum(axis=2)
+                # Cauchy affinities
+                all_probits = torch.div(1, self.eps + all_sq_dists)
+                sq_dists = all_sq_dists[batch_indices, neigh_inds]
+            elif self.metric == "cosine":
+                norm = torch.nn.functional.normalize
+                features_normed = norm(features, dim=1)
+                all_logits = torch.matmul(features_normed, features_normed.T) / temperature.clamp(0.02,
+                                                                       None)  # bound temp from below to avoid overflow
+                all_probits = torch.exp(all_logits)
+
+            else:
+                raise ValueError(f"Unknown metric “{self.metric}”")
+
+            probits = all_probits[batch_indices, neigh_inds]
 
         # compute loss
         if self.loss_mode == "nce":
