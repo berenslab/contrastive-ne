@@ -113,7 +113,7 @@ class ContrastiveEmbedding(object):
         metric="euclidean",
         optimizer="sgd",
         weight_decay=0,
-        anneal_lr="none",
+        anneal_lr="none", #todo default in _cne is True, harmonize this!
         lr_decay_rate=0.1,
         lr_decay_epochs=None,  # unused for now
         clip_grad=True,
@@ -144,7 +144,7 @@ class ContrastiveEmbedding(object):
         :param ince_spec: float The repulsive term in the InfoNCE loss is multiplied by the inverse of ince_spec. Controls the InfoNCE spectrum. Redundant with s, which has priority.
         :param Z_bar: float Fixed normalization constant in negative sampling. Controls the negative sampling spectrum. Redundant with s, which has priority.
         :param s: float Spectrum parameter for the spectrum of neighbor embeddings. If s=1, the embedding will be similar to a UMAP embedding (independent of the number of negative samples, unlike in the ICLR paper). If s=0, the embedding will be similar to a t-SNE embedding. Logarithmic inter-/ extrapolation. Works for the loss modes "infonce", "infonce_alt" and "neg".
-        :param eps: float Iterpolates between UMAP's implicit similarity (eps = 0) and the Cauchy kernels (eps = 1.0)
+        :param eps: float Interpolates between UMAP's implicit similarity (eps = 0) and the Cauchy kernels (eps = 1.0)
         :param clamp_high: float Upper value at which arguments to logarithms are clamped. Default "auto" chooses values based on the metric. For metric="euclidean" it is 1.0, for metric="cosine" it is inf.
         :param clamp_low: float Lower value at which arguments to logarithms are clamped. Default "auto" chooses values based on the metric. For metric="euclidean" it is 1e-4, for metric="cosine" it is -inf.
         :param Z: float Initial value for the learned normalization parameter of NCE
@@ -153,7 +153,7 @@ class ContrastiveEmbedding(object):
         :param optimizer: str Specifies which optimizer to use. Must be "sgd" or "adam"
         :param weight_decay: float Value of weight decay.
         :param anneal_lr: bool If True, the learning rate is annealed
-        :param lr_decay_rate: float Parameter for speed of learing rate decay
+        :param lr_decay_rate: float Parameter for speed of learning rate decay
         :param lr_decay_epochs: int Number of epochs over which learning rate is decayed
         :param clip_grad: bool If True, gradients are clipped
         :param save_freq: int Frequency in epochs of calling callback.
@@ -587,7 +587,7 @@ class ContrastiveLoss(torch.nn.Module):
 
         origs = features[:b]
 
-        if negative_samples * features.shape[1] < b:
+        if negative_samples * features.shape[1] < 4*b:
             # peak memormy usage b*negative_sapmles*features.shape[1]
 
             neighbors = features[neigh_inds]
@@ -607,7 +607,7 @@ class ContrastiveLoss(torch.nn.Module):
                 raise ValueError(f"Unknown metric “{self.metric}”")
 
         else:
-            # peak memory usage b*b
+            # peak memory usage 4*b*b
             # compute all interactions first
 
             batch_indices = torch.arange(b, device=features.device).unsqueeze(1).expand(-1, negative_samples+1) # +1 because of positive tail
