@@ -126,7 +126,8 @@ class ContrastiveEmbedding(object):
         force_resample=None,
         warmup_epochs=0,
         warmup_lr=0,
-        early_exaggeration=True
+        early_exaggeration=True,
+        alignment=False,
     ):
         """
         :param model: torch.nn.Module Embedding model (embedding layer for non-parametric, neural network for parametric)
@@ -166,6 +167,7 @@ class ContrastiveEmbedding(object):
         :param warmup_epochs: int Number of epochs for linearly warming up the learning rate
         :param warmup_lr: float Starting learning rate to warm up from.
         :param early_exaggeration: bool Whether to use the first third of the optimization in the s=1 regime. Only affects loss modes "infonce" and "neg".
+        :param alignment: bool Whether to align two datasets or just embed one. Default False, i.e., just embed one dataset.
         """
         self.model: torch.nn.Module = model
         self.batch_size: int = batch_size
@@ -234,6 +236,8 @@ class ContrastiveEmbedding(object):
         self.force_resample = force_resample
         self.warmup_epochs = warmup_epochs
         self.warmup_lr = warmup_lr
+
+        self.alignment = alignment
 
         # alias for loss mode "neg" to ensure backwards compatibility
         # still support "neg_sample" since the loss mode is put into the file names, which are featured in the notebooks
@@ -408,6 +412,7 @@ class ContrastiveEmbedding(object):
             clamp_low=self.clamp_low,
             seed=self.seed,
             loss_aggregation=self.loss_aggregation,
+            alignment=self.alignment,
         )
 
         # set up optimizer
@@ -534,6 +539,7 @@ class ContrastiveLoss(torch.nn.Module):
         clamp_low=1e-4,
         seed=0,
         loss_aggregation="mean",
+        alignment=False,
     ):
         super(ContrastiveLoss, self).__init__()
         self.negative_samples = negative_samples
@@ -549,6 +555,7 @@ class ContrastiveLoss(torch.nn.Module):
         torch.manual_seed(self.seed)
         self.neigh_inds = None
         self.loss_aggregation = loss_aggregation
+        self.alignment = alignment
 
     def forward(self, features, log_Z=None, log_temp=None, force_resample=False):
         """Compute loss for model. SimCLR unsupervised loss:
@@ -570,11 +577,14 @@ class ContrastiveLoss(torch.nn.Module):
 
         # We can at most sample this many samples from the batch.
         # `b` can be lower than `self.negative_samples` in the last batch.
-        negative_samples = min(self.negative_samples, 2 * b - 2)
+        if self.alignment:
+            negative_samples = min(self.negative_samples, b - 1)
+        else:
+            negative_samples = min(self.negative_samples, 2 * b - 2)
 
         if force_resample or self.neigh_inds is None:
             neigh_inds = make_neighbor_indices(
-                batch_size, negative_samples, device=features.device
+                batch_size, negative_samples, alignment=self.alignment, device=features.device
             )
             self.neigh_inds = neigh_inds
         else:
@@ -585,7 +595,10 @@ class ContrastiveLoss(torch.nn.Module):
         neigh_mask = torch.ones_like(neigh_inds, dtype=torch.bool)
         neigh_mask[:, 0] = False
 
-        origs = features[:b]
+        if self.alignment:
+            origs = features
+        else:
+            origs = features[:b]
 
         if negative_samples * features.shape[1] < 4*b:
             # peak memormy usage b*negative_sapmles*features.shape[1]
@@ -736,40 +749,63 @@ def new_lr(
     return lr
 
 
-def make_neighbor_indices(batch_size, negative_samples, device=None):
+def make_neighbor_indices(batch_size, negative_samples, alignment=False, device=None):
     """
     Selects neighbor indices
     :param batch_size: int Batch size
     :param negative_samples: int Number of negative samples
+    :param alignment: bool If True, only one dataset with positive pair entries from the same, if False two datasets with positive pair entries from one dataset to the other
     :param device: torch.device Device of the model
     :return: torch.tensor Neighbor indices
     :rtype:
     """
     b = batch_size
 
-    if negative_samples < 2 * b - 2:
-        # uniform probability for all points in the minibatch, save the head of the positive pair,
-        # we sample points for repulsion randomly
-        neg_inds = torch.randint(0, 2 * b - 1, (b, negative_samples), device=device)
-        neg_inds += (torch.arange(1, b + 1, device=device) - 2 * b)[:, None]
+    if not alignment:
+        if negative_samples < 2 * b - 2:
+            # uniform probability for all points in the minibatch, save the head of the positive pair,
+            # we sample points for repulsion randomly
+            neg_inds = torch.randint(0, 2 * b - 1, (b, negative_samples), device=device)
+            neg_inds += (torch.arange(1, b + 1, device=device) - 2 * b)[:, None]
+        else:
+            # full batch repulsion, all points save those of the positive pair are used as negative samples
+            all_inds1 = torch.repeat_interleave(
+                torch.arange(b, device=device)[None, :], b, dim=0
+            )
+            not_self = ~torch.eye(b, dtype=bool, device=device)
+            neg_inds1 = all_inds1[not_self].reshape(b, b - 1)
+
+            all_inds2 = torch.repeat_interleave(
+                torch.arange(b, 2 * b, device=device)[None, :], b, dim=0
+            )
+            neg_inds2 = all_inds2[not_self].reshape(b, b - 1)
+            neg_inds = torch.hstack((neg_inds1, neg_inds2))
+
+        # now add transformed explicitly
+        neigh_inds = torch.hstack(
+            (torch.arange(b, 2 * b, device=device)[:, None], neg_inds)
+        )
+
     else:
-        # full batch repulsion, all points save those of the positive pair are used as negative samples
-        all_inds1 = torch.repeat_interleave(
-            torch.arange(b, device=device)[None, :], b, dim=0
-        )
-        not_self = ~torch.eye(b, dtype=bool, device=device)
-        neg_inds1 = all_inds1[not_self].reshape(b, b - 1)
+        # left entry of the positive pair is from the first dataset, right entry from the second dataset
+        # Only create negative samples from the other dataset.
 
-        all_inds2 = torch.repeat_interleave(
-            torch.arange(b, 2 * b, device=device)[None, :], b, dim=0
-        )
-        neg_inds2 = all_inds2[not_self].reshape(b, b - 1)
-        neg_inds = torch.hstack((neg_inds1, neg_inds2))
+        if negative_samples < b - 1:
+            # from dataset A to B
+            neg_inds1 = torch.randint(0, b - 1, (b, negative_samples), device=device)
+            neg_inds1 += b # b*m
 
-    # now add transformed explicitly
-    neigh_inds = torch.hstack(
-        (torch.arange(b, 2 * b, device=device)[:, None], neg_inds)
-    )
+            # from dataset B to A
+            neg_inds2 = torch.randint(0, b - 1, (b, negative_samples), device=device) # b*m
+
+            neg_inds = torch.concatenate([neg_inds1, neg_inds2], dim=0) # 2*b*m
+
+            # add the original positive sample back in in the first position.
+            neigh_inds = torch.hstack(
+                ((torch.arange(0, 2 * b, device=device)- b)[:, None], neg_inds)
+            ) # 2*b*(m+1)
+        else:
+            raise NotImplementedError("Full batch negative sampling not implemented for alignment=True")
 
     return neigh_inds
 
