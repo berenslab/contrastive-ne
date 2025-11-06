@@ -3,8 +3,10 @@ import numpy as np
 
 from .cne import ContrastiveEmbedding
 from annoy import AnnoyIndex
+import scipy.sparse as sp
 from scipy.sparse import lil_matrix
 from sklearn.decomposition import PCA
+from sklearn.utils import check_random_state
 import time
 
 # various datasets / dataloaders
@@ -169,6 +171,139 @@ class FCNetwork(torch.nn.Module):
         logits = self.linear_relu_stack(x)
         return logits
 
+# functions jitter, rescale, and spectral taken / adapted from openTSNE.initialization
+# https://github.com/pavlin-policar/openTSNE/blob/master/openTSNE/initialization.py
+def jitter(x, inplace=False, scale=0.01, random_state=None):
+    """Add jitter with small standard deviation to avoid numerical problems
+    when the points overlap exactly.
+
+    Parameters
+    ----------
+    x: np.ndarray
+    inplace: bool
+    scale: float
+    random_state: int or np.random.RandomState
+
+    Returns
+    -------
+    np.ndarray
+        A jittered version of ``x``.
+
+    """
+    if not inplace:
+        x = np.array(x, copy=True)
+
+    target_std = np.std(x[:, 0]) * scale
+    random_state = check_random_state(random_state)
+    x += random_state.normal(0, target_std, x.shape)
+
+    return x
+
+def rescale(x, inplace=False, target_std=1e-4):
+    """Rescale an embedding so optimization will not have convergence issues.
+
+    Parameters
+    ----------
+    x: np.ndarray
+    inplace: bool
+    target_std: float
+
+    Returns
+    -------
+    np.ndarray
+        A scaled-down version of ``x``.
+
+    """
+    if not inplace:
+        x = np.array(x, copy=True)
+
+    x /= np.std(x[:, 0]) / target_std
+
+    return x
+
+def spectral(
+    A,
+    n_components=2,
+    mode="le",
+    tol=1e-4,
+    max_iter=None,
+    random_state=None,
+    add_jitter=True,
+):
+    """Initialize an embedding using the spectral embedding of the KNN graph.
+
+    Specifically, we initialize data points by computing the diffusion map on
+    the random walk transition matrix of the weighted graph given by the affiniy
+    matrix.
+
+    Parameters
+    ----------
+    A: Union[sp.csr_matrix, sp.csc_matrix, ...]
+        The graph adjacency matrix.
+
+    n_components: int
+        The dimension of the embedding space.
+
+    mode: str
+        Either "le" for Laplacian Eigenmaps or "diffmaps" for Diffusion Maps with one diffusion step.
+
+    tol: float
+        See scipy.sparse.linalg.eigsh documentation.
+
+    max_iter: float
+        See scipy.sparse.linalg.eigsh documentation.
+
+    random_state: Any
+        If the value is an int, random_state is the seed used by the random
+        number generator. If the value is a RandomState instance, then it will
+        be used as the random number generator. If the value is None, the random
+        number generator is the RandomState instance used by `np.random`.
+
+    add_jitter: bool
+        If True, jitter with small standard deviation is added to the
+        initialization to prevent points overlapping exactly, which may lead to
+        numerical issues during optimization.
+
+    Returns
+    -------
+    initialization: np.ndarray
+
+    """
+    if A.ndim != 2:
+        raise ValueError("The graph adjacency matrix must be a 2-dimensional matrix.")
+    if A.shape[0] != A.shape[1]:
+        raise ValueError("The graph adjacency matrix must be a square matrix.")
+
+    assert mode == "le" or mode == "diffmaps", "spectral init mode must be either 'le' or 'diffmaps'"
+
+    D = sp.diags(np.ravel(np.sum(A, axis=1)))
+
+    # Find leading eigenvectors
+    k = n_components + 1
+    # v0 initializatoin is taken from sklearn.utils._arpack._init_arpack_v0()
+    random_state = check_random_state(random_state)
+    v0 = random_state.uniform(-1, 1, A.shape[0])
+    eigvals, eigvecs = sp.linalg.eigsh(
+        A, M=D, k=k, tol=tol, maxiter=max_iter, which="LM", v0=v0
+    )
+    # Sort the eigenvalues in decreasing order, and reorder eigenvectors accordingly
+    order = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[order]
+    eigvecs = eigvecs[:, order]
+
+    # In diffusion maps, we multiply the eigenvectors by their eigenvalues
+    if mode == "diffmaps":
+        eigvecs *= eigvals
+
+    # Drop the leading eigenvector
+    embedding = eigvecs[:, 1:]
+
+    rescale(embedding, inplace=True, target_std=1e-4)
+    if add_jitter:
+        jitter(embedding, inplace=True, random_state=random_state)
+
+    return embedding
+
 
 class CNE(object):
     """
@@ -206,14 +341,15 @@ class CNE(object):
         self.embd_dim = embd_dim
 
 
-    def fit_transform(self, X, init=None, graph=None):
+    def fit_transform(self, X=None, init=None, graph=None):
         "Fit the model, then transform."
         self.fit(X, init=init, graph=graph)
         return self.transform(X, fit_transform=True)
 
-    def transform(self, X, fit_transform=False):
+    def transform(self, X=None, fit_transform=False):
         "Transform a dataset using the fitted model."
         if self.parametric:
+            assert X is not None, "For a parametric model data X must be provided to transform."
             X = X.reshape(X.shape[0], -1)
             self.dataset_plain = NumpyToTensorDataset(X)
             self.dl_unshuf = torch.utils.data.DataLoader(
@@ -241,7 +377,7 @@ class CNE(object):
                           "Pass an integer (or a list / np.array thereof) to obtain the corresponding training embeddings")
         return embd
 
-    def fit(self, X, init=None, graph=None):
+    def fit(self, X=None, init=None, graph=None):
         """
         Fit the model
         :param X: np.array Dataset
@@ -253,52 +389,18 @@ class CNE(object):
         :return:
         """
         start_time = time.time()
-        X = X.reshape(X.shape[0], -1)
-        in_dim = X.shape[1]
-        # set up model if not given
-        if self.model is None:
-            if self.parametric:
-                self.embd_layer = torch.nn.Embedding.from_pretrained(torch.tensor(X).to(torch.float32),
-                                                                     freeze=True)
-                self.network = FCNetwork(in_dim, feat_dim=self.embd_dim)
-                self.model = torch.nn.Sequential(
-                    self.embd_layer,
-                    self.network
-                )
-            else:
-                if init is None:
-                    # default to pca
-                    pca_projector = PCA(n_components=self.embd_dim)
-                    init = pca_projector.fit_transform(X)
-                    init /= (init[:, 0].std())
-                elif type(init).__module__ == np.__name__:
-                    assert len(init) == len(X), f"Data and initialization must have the same number of elements but have {len(X)} and {len(init)}."
-                    assert len(init.shape) == 2, f"Initialization must have 2 dimensions but has {len(init.shape)}."
-                    if init.shape[1] != self.embd_dim:
-                        print(f"Warning: Initialization has {init.shape[1]} dimensions but {self.embd_dim} are expected."
-                              f" Will use the initialization's {init.shape[1]} dimensions.")
-                # All embedding parameters will be part of the model. This is
-                # conceptually easy, but limits us to embeddings that fit on the
-                # GPU.
-                self.model = torch.nn.Embedding.from_pretrained(torch.tensor(init))
-                self.model.requires_grad_(True)
 
-        # use higher learning rate for non-parametric version
-        if "learning_rate" not in self.kwargs.keys():
-            lr = 0.001 if self.parametric else 1.0
-            self.kwargs["learning_rate"] = lr
-
-        # Load embedding engine
-        self.cne = ContrastiveEmbedding(self.model,
-                                        seed=self.seed,
-                                        anneal_lr=self.anneal_lr,
-                                        **self.kwargs)
+        assert X is not None or sp.issparse(graph), "Either data X or a similarity graph must be provided to fit the model."
+        assert X is not None or not self.parametric, "For a parametric model data X must be provided to fit the model."
+        if X is not None:
+            X = X.reshape(X.shape[0], -1)
+            in_dim = X.shape[1]
 
         # is no graph is passed, compute the similarity graph with pykeops is cuda is available and otherwise annoy
         if graph is None:
             # select annoy or pykeops depending on data_on_gpu and availability of pykeops
             if self.use_keops is None:
-                if self.cne.device == "cuda":
+                if torch.cuda.is_available():
                     try:
                         import pykeops
                         graph = "pykeops"
@@ -308,7 +410,6 @@ class CNE(object):
                     graph = "annoy"
             else:
                 graph = "pykeops" if self.use_keops else "annoy"
-
 
         if isinstance(graph, str):
             if graph == "annoy":
@@ -330,7 +431,6 @@ class CNE(object):
             elif graph == "pykeops":
                 print("Computing exact kNN graph with pykeops")
                 from pykeops.torch import LazyTensor
-                import scipy.sparse
 
                 # set up pykeops LazyTensors
                 x_cuda = torch.tensor(X).to("cuda").contiguous()
@@ -342,10 +442,10 @@ class CNE(object):
                 knn_idx = dists.argKmin(K=self.k + 1, dim=0)[:, 1:].cpu().numpy().flatten()
 
                 # construct the adjacency matrix for the graph
-                knn_graph = scipy.sparse.coo_matrix((np.ones(len(X) * self.k),
-                                                     (np.repeat(np.arange(X.shape[0]), self.k),
-                                                      knn_idx)),
-                                                    shape=(len(X), len(X)))
+                knn_graph = sp.coo_matrix((np.ones(len(X) * self.k),
+                                           (np.repeat(np.arange(X.shape[0]), self.k),
+                                            knn_idx)),
+                                          shape=(len(X), len(X)))
 
                 # symmetrize on the fly
                 self.neighbor_mat = knn_graph.maximum(knn_graph.transpose()).tocsr()
@@ -353,6 +453,80 @@ class CNE(object):
                 raise ValueError("When passing a string as graph it must be 'annoy' or 'pykeops'")
         else:
             self.neighbor_mat = graph.tocsr()
+
+
+
+
+        # set up model if not given
+        if self.model is None:
+            if self.parametric:
+                self.embd_layer = torch.nn.Embedding.from_pretrained(torch.tensor(X).to(torch.float32),
+                                                                     freeze=True)
+                self.network = FCNetwork(in_dim, feat_dim=self.embd_dim)
+                self.model = torch.nn.Sequential(
+                    self.embd_layer,
+                    self.network
+                )
+            else:
+                if init is None:
+                    if X is not None:
+                        init = "pca" # defazult to pca if data is given
+                    elif graph is not None:
+                        init = "le" # default to laplacian eigenmaps if only graph is given
+                    else:
+                        raise ValueError("If no data X is provided, a graph must be provided and init must be 'le' to use spectral initialization.")
+
+                elif type(init).__module__ == np.__name__:
+                    if X is not None:
+                        assert len(init) == len(X), f"Data and initialization must have the same number of elements but have {len(X)} and {len(init)}."
+                    assert len(init.shape) == 2, f"Initialization must have 2 dimensions but has {len(init.shape)}."
+                    if init.shape[1] != self.embd_dim:
+                        print(f"Warning: Initialization has {init.shape[1]} dimensions but {self.embd_dim} are expected."
+                              f" Will use the initialization's {init.shape[1]} dimensions.")
+
+
+                if isinstance(init, str):
+
+                    if init == "pca":
+                        assert X is not None, "Data X must be provided for PCA initialization."
+                        pca_projector = PCA(n_components=self.embd_dim)
+                        init = pca_projector.fit_transform(X)
+                        init = rescale(init, inplace=True, target_std=1e-4)
+                    elif init == "le":
+                        assert self.neighbor_mat is not None, "A graph must be provided for Laplacian Eigenmaps initialization."
+                        init = spectral(self.neighbor_mat,
+                                        n_components=self.embd_dim,
+                                        random_state=self.seed,
+                                        add_jitter=True)
+                    elif init == "diffmaps":
+                        assert self.neighbor_mat is not None, "A graph must be provided for Diffusion Maps initialization."
+                        init = spectral(self.neighbor_mat,
+                                        n_components=self.embd_dim,
+                                        mode="diffmaps",
+                                        random_state=self.seed,
+                                        add_jitter=True)
+                    else:
+                        raise ValueError("If no initialization is provided, init must be 'pca', 'le' or 'diffmaps'.")
+
+                assert isinstance(init, np.ndarray), "After processing, initialization must be a numpy array."
+                # All embedding parameters will be part of the model. This is
+                # conceptually easy, but limits us to embeddings that fit on the
+                # GPU.
+                self.model = torch.nn.Embedding.from_pretrained(torch.tensor(init))
+                self.model.requires_grad_(True)
+
+        # use higher learning rate for non-parametric version
+        if "learning_rate" not in self.kwargs.keys():
+            lr = 0.001 if self.parametric else 1.0
+            self.kwargs["learning_rate"] = lr
+
+        # Load embedding engine
+        self.cne = ContrastiveEmbedding(self.model,
+                                        seed=self.seed,
+                                        anneal_lr=self.anneal_lr,
+                                        **self.kwargs)
+
+
 
         if self.data_on_gpu == "auto":
             self.data_on_gpu = self.cne.device == "cuda"
@@ -367,7 +541,7 @@ class CNE(object):
                                                seed=self.seed)
 
         # fit the model
-        self.cne.fit(self.dataloader, len(X))
+        self.cne.fit(self.dataloader, len(init))
         end_time = time.time()
         self.cne.time = end_time - start_time
         return self
